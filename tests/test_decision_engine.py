@@ -76,6 +76,28 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertTrue(any(not item["is_core"] for item in listed))
         self.assertTrue(all(isinstance(item.get("amount"), int) and item["amount"] > 0 for item in listed))
 
+    def test_continuous_bidding_ignores_expiry_window(self):
+        squad = self.squad()
+        candidate = player("upgrade", 3, 5, mv=1_000_000, points=500)
+        candidate.update({"prc": 1_000_000, "exs": 6 * 60 * 60})
+        plan = build_trade_plan(
+            [candidate], squad,
+            {"continuous_bidding": True, "bid_window_minutes": 10, "minimum_cash": 1_000_000},
+            "me", False, 10_000_000,
+        )
+        self.assertTrue(any(item["kind"] == "buy" and item["player_id"] == "upgrade" for item in plan["actions"]))
+
+    def test_late_only_bidding_still_respects_expiry_window(self):
+        squad = self.squad()
+        candidate = player("upgrade", 3, 5, mv=1_000_000, points=500)
+        candidate.update({"prc": 1_000_000, "exs": 6 * 60 * 60})
+        plan = build_trade_plan(
+            [candidate], squad,
+            {"continuous_bidding": False, "bid_window_minutes": 10, "minimum_cash": 1_000_000},
+            "me", False, 10_000_000,
+        )
+        self.assertFalse(any(item["kind"] == "buy" for item in plan["actions"]))
+
     def test_purchase_price_and_star_profit_protect_offer_floor(self):
         star = player("star", 3, 5, mv=10_000_000, trend=2)
         star["purchasePrice"] = 12_000_000

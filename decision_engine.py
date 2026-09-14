@@ -184,7 +184,7 @@ def affordable_upgrades(squad, market_players, budget, config, user_id=""):
         price = int(_number(candidate, "price", "prc", "marketValue", "mv") or 0)
         pos = _position(candidate)
         expiry = int(_number(candidate, "expiry", "exs") or 10**9)
-        if expiry > int(config.get("bid_window_minutes", 10)) * 60:
+        if not config.get("continuous_bidding", True) and expiry > int(config.get("bid_window_minutes", 10)) * 60:
             continue
         if score is None or score < min_s11 or price <= 0 or pos not in POSITION_MINIMUM:
             continue
