@@ -40,5 +40,6 @@
   "star_listing_bonus_percent": 8,
   "star_sale_profit_percent": 10,
   "kickbest_enabled": true,
-  "kickbest_url": "https://kickbest.app/"
+  "kickbest_url": "https://kickbest.app/",
+  "portfolio_actions_per_run": 3
 }
