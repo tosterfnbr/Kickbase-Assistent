@@ -183,6 +183,9 @@ def affordable_upgrades(squad, market_players, budget, config, user_id=""):
         score = s11_score(candidate)
         price = int(_number(candidate, "price", "prc", "marketValue", "mv") or 0)
         pos = _position(candidate)
+        expiry = int(_number(candidate, "expiry", "exs") or 10**9)
+        if expiry > int(config.get("bid_window_minutes", 10)) * 60:
+            continue
         if score is None or score < min_s11 or price <= 0 or pos not in POSITION_MINIMUM:
             continue
         incumbents = [p for p in selected if _position(p) == pos]
@@ -210,7 +213,16 @@ def affordable_upgrades(squad, market_players, budget, config, user_id=""):
         cash -= price
         used_in.add(cid)
         used_out.add(wid)
-    return {"current_lineup": lineup, "buys": proposals, "remaining_cash": cash}
+    target_players = list(lineup["players"])
+    for item in proposals:
+        target_players = [p for p in target_players if player_id(p) != item["replace_player_id"]]
+        target_players.append(item["player"])
+    target = {
+        "formation": lineup["formation"], "players": target_players,
+        "bench": lineup.get("bench", []), "complete": len(target_players) == 11,
+        "score": sum(_quality(p) for p in target_players),
+    }
+    return {"current_lineup": lineup, "target_lineup": target, "buys": proposals, "remaining_cash": cash}
 
 
 def selling_candidates(squad, config, protected_ids=()):
@@ -303,7 +315,7 @@ def build_trade_plan(market_players, squad, config, user_id="", near_matchday=Fa
     actions.extend(upgrade_plan["buys"])
     return {
         "lineup": lineup,
-        "target_lineup": lineup,
+        "target_lineup": upgrade_plan["target_lineup"],
         "upgrades": upgrade_plan["buys"],
         "actions": actions,
         "blocked": blocked,
