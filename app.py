@@ -430,6 +430,9 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
         "planned": [],
         "blocked": list(plan["blocked"]),
         "best_lineup": plan["lineup"],
+        "target_lineup": plan.get("target_lineup", plan["lineup"]),
+        "upgrades": plan.get("upgrades", []),
+        "portfolio": plan.get("portfolio", {}),
     }
 
     risky_names = set()
@@ -465,9 +468,12 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     min_s11 = max(1, min(5, int(config.get("minimum_starting_probability", 3))))
     if config.get("auto_buy", True) and isinstance(budget, (int, float)):
         buy_candidates = []
+        existing_buy_ids = {item.get("player_id") for item in plan["actions"] if item.get("kind") == "buy"}
         for player in market_players:
             pid = engine_player_id(player)
             if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
+                continue
+            if pid in existing_buy_ids:
                 continue
             mv = int(pick(player, "marketValue", "mv", default=0) or 0)
             price = int(pick(player, "price", "prc", "p", default=mv) or mv)
