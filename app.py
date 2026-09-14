@@ -17,6 +17,7 @@ import requests
 
 from decision_engine import build_trade_plan, best_lineup, enrich_s11, pick as engine_pick, player_id as engine_player_id, player_name as engine_player_name, s11_score
 from ligainsider import fetch_ligainsider
+from stats_provider import enrich_performance, fetch_kickbest
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -409,7 +410,8 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     """Plan in observe mode; execute the exact same bounded plan only in live mode."""
     stamp = datetime.now(timezone.utc).isoformat()
     live_mode = bool(config.get("trading_enabled")) and config.get("mode") == "live"
-    max_actions = max(1, min(5, int(config.get("max_actions_per_run", 1))))
+    action_setting = config.get("portfolio_actions_per_run", 3) if config.get("portfolio_mode", True) else config.get("max_actions_per_run", 1)
+    max_actions = max(1, min(5, int(action_setting)))
     min_cash = max(0, int(config.get("minimum_cash", 1_000_000)))
     max_overpay = max(0, min(30, float(config.get("maximum_overpay_percent", 8))))
     protect_hours = max(0, int(config.get("matchday_protection_hours", 48)))
@@ -419,7 +421,7 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     enriched_by_id = {engine_player_id(p): p for p in market_players + config.get("_enriched_squad", [])}
     squad = [enriched_by_id.get(engine_player_id(p), p) for p in squad]
     near_matchday = (seconds_until_kickoff(live) or 10**12) <= protect_hours * 3600
-    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday)
+    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday, budget)
     result = {
         "enabled": bool(config.get("trading_enabled")),
         "mode": "live" if live_mode else "observe",
@@ -428,6 +430,9 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
         "planned": [],
         "blocked": list(plan["blocked"]),
         "best_lineup": plan["lineup"],
+        "target_lineup": plan.get("target_lineup", plan["lineup"]),
+        "upgrades": plan.get("upgrades", []),
+        "portfolio": plan.get("portfolio", {}),
     }
 
     risky_names = set()
@@ -442,13 +447,18 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
 
     def compact(action):
         player = action.get("player", {})
+        amount = action.get("amount")
+        paid = int(pick(player, "purchasePrice", "buyPrice", "bp", "bpr", default=0) or 0)
+        profit = amount - paid if paid and isinstance(amount, (int, float)) and action.get("kind") in ("accept_offer", "instant_sell") else None
         return {
             "time": stamp,
             "action": action["kind"],
             "player_id": engine_player_id(player),
             "player": engine_player_name(player),
             "reason": action.get("reason", ""),
-            "amount": action.get("amount"),
+            "amount": amount,
+            "purchase_price": paid or None,
+            "profit": profit,
         }
 
     # Add late-buy proposals using corrected S11 semantics. Unknown never means 0/5.
@@ -458,9 +468,12 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     min_s11 = max(1, min(5, int(config.get("minimum_starting_probability", 3))))
     if config.get("auto_buy", True) and isinstance(budget, (int, float)):
         buy_candidates = []
+        existing_buy_ids = {item.get("player_id") for item in plan["actions"] if item.get("kind") == "buy"}
         for player in market_players:
             pid = engine_player_id(player)
             if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
+                continue
+            if pid in existing_buy_ids:
                 continue
             mv = int(pick(player, "marketValue", "mv", default=0) or 0)
             price = int(pick(player, "price", "prc", "p", default=mv) or mv)
@@ -483,7 +496,8 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
                 buy_candidates.append((not is_target, -score, expiry, {"kind": "buy", "player": player, "amount": bid, "reason": f"S11 {score}/5, Preis innerhalb der Grenze"}))
         plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
 
-    selected = plan["actions"][:max_actions]
+    priority = {"accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
+    selected = sorted(plan["actions"], key=lambda item: priority.get(item.get("kind"), 9))[:max_actions]
     result["planned"] = [compact(action) for action in selected]
     if not live_mode:
         result["status"] = f"Testmodus: {len(selected)} geplante Aktion(en)"
@@ -569,6 +583,9 @@ def run_once():
     ligainsider = fetch_ligainsider(squad_players + players, config)
     players = enrich_s11(players, ligainsider)
     squad_players = enrich_s11(squad_players, ligainsider)
+    kickbest = fetch_kickbest(squad_players + players, config)
+    players = enrich_performance(players, kickbest)
+    squad_players = enrich_performance(squad_players, kickbest)
     config["_enriched_squad"] = squad_players
     recommended_lineup = best_lineup(squad_players)
     watched_players = [{"name": name} for name in config.get("watchlist_names", []) if str(name).strip()]
@@ -583,7 +600,9 @@ def run_once():
         ])
     if trading.get("actions"):
         notification_lines.extend(["", "AUTOMATISCHE HANDELSAKTIONEN:"] + [
-            f"• {item['action']}: {item['player']} ({item['reason']})"
+            f"• {item['action']}: {item['player']} – {int(item.get('amount') or 0):,} €"
+            + (f" · Gewinn {int(item['profit']):,} €" if item.get("profit") is not None else "")
+            + f" ({item['reason']})"
             for item in trading["actions"]
         ])
     if trading.get("blocked"):
@@ -611,6 +630,7 @@ def run_once():
         "players": players,
         "best_lineup": recommended_lineup,
         "ligainsider": ligainsider,
+        "kickbest": kickbest,
         "sections": extra,
         "live": live,
         "value_history": history,

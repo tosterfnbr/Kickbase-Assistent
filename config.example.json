@@ -10,7 +10,7 @@
   "auto_accept_offers": true,
   "auto_adjust_listings": true,
   "minimum_squad_size": 11,
-  "max_actions_per_run": 1,
+  "max_actions_per_run": 3,
   "matchday_protection_hours": 48,
   "bid_window_minutes": 10,
   "minimum_starting_probability": 3,
@@ -33,5 +33,13 @@
   "minimum_offer_percent": 98,
   "rising_price_bonus_percent": 3,
   "falling_price_discount_percent": 2,
-  "safe_s11_price_bonus_percent": 2
+  "safe_s11_price_bonus_percent": 2,
+  "portfolio_mode": true,
+  "list_all_players": true,
+  "target_profit_percent": 4,
+  "star_listing_bonus_percent": 8,
+  "star_sale_profit_percent": 10,
+  "kickbest_enabled": true,
+  "kickbest_url": "https://kickbest.app/",
+  "portfolio_actions_per_run": 3
 }

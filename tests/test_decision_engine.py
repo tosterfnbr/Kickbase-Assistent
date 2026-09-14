@@ -47,11 +47,12 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(counts[1], 1)
         self.assertEqual(sum(counts.values()), 11)
 
-    def test_unknown_s11_is_never_auto_sell_reason(self):
+    def test_unknown_s11_can_be_listed_but_never_instant_sold(self):
         squad = self.squad()
-        candidates = selling_candidates(squad, {"minimum_starting_probability": 3, "auto_instant_sell": True})
-        candidate_ids = {item["player_id"] for item in candidates}
-        self.assertNotIn("g2", candidate_ids)
+        candidates = selling_candidates(squad, {"minimum_starting_probability": 3, "auto_instant_sell": True, "list_all_players": True})
+        unknown = next(item for item in candidates if item["player_id"] == "g2")
+        self.assertEqual(unknown["method"], "list")
+        self.assertNotIn("S11", unknown["reason"])
 
     def test_good_offer_wins_before_price_adjustment(self):
         listed = player("sale", 2, 2, mv=10_000_000, owner="me")
@@ -65,6 +66,20 @@ class DecisionEngineTests(unittest.TestCase):
         limits = price_limits(strong, {"asking_price_percent": 2, "rising_price_bonus_percent": 3, "safe_s11_price_bonus_percent": 2})
         self.assertEqual(limits["asking"], 10_700_000)
 
+
+    def test_portfolio_lists_core_and_reserve_players(self):
+        squad = self.squad()
+        plan = build_trade_plan([], squad, {"portfolio_mode": True, "list_all_players": True}, "me", False, 0)
+        listed = [item for item in plan["actions"] if item["kind"] == "list"]
+        self.assertEqual(len(listed), len(squad))
+        self.assertTrue(any(item["is_core"] for item in listed))
+        self.assertTrue(any(not item["is_core"] for item in listed))
+
+    def test_purchase_price_and_star_profit_protect_offer_floor(self):
+        star = player("star", 3, 5, mv=10_000_000, trend=2)
+        star["purchasePrice"] = 12_000_000
+        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10}, is_core=True)
+        self.assertGreaterEqual(limits["accept"], 13_200_000)
 
 if __name__ == "__main__":
     unittest.main()

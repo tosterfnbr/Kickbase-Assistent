@@ -124,6 +124,7 @@ def update_config():
     numeric_limits = {
         "minimum_squad_size": (11, 30),
         "max_actions_per_run": (1, 5),
+        "portfolio_actions_per_run": (1, 5),
         "matchday_protection_hours": (0, 120),
         "bid_window_minutes": (5, 30),
         "minimum_starting_probability": (1, 5),
@@ -132,11 +133,14 @@ def update_config():
         "rising_price_bonus_percent": (0, 20),
         "falling_price_discount_percent": (0, 20),
         "safe_s11_price_bonus_percent": (0, 20),
+        "target_profit_percent": (0, 50),
+        "star_listing_bonus_percent": (0, 50),
+        "star_sale_profit_percent": (0, 100),
     }
     for key, (low, high) in numeric_limits.items():
         if key in incoming:
             config[key] = min(high, max(low, int(incoming[key])))
-    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled"):
+    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled", "portfolio_mode", "list_all_players", "kickbest_enabled"):
         if key in incoming:
             config[key] = bool(incoming[key])
     CONFIG.write_text(json.dumps(config, indent=2), encoding="utf-8")
