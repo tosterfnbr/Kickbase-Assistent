@@ -81,7 +81,7 @@ def state():
         trades = json.loads(trade_log.read_text(encoding="utf-8"))[-30:] if trade_log.exists() else []
     except (OSError, ValueError, TypeError):
         trades = []
-    return jsonify({"league": snapshot.get("league"), "updated_at": snapshot.get("updated_at"), "players": snapshot.get("market", {}).get("it", []) if isinstance(snapshot.get("market"), dict) else [], "config": config, "strategy": strategy, "trades": trades, "raw": snapshot})
+    return jsonify({"league": snapshot.get("league"), "updated_at": snapshot.get("updated_at"), "players": snapshot.get("players") or (snapshot.get("market", {}).get("it", []) if isinstance(snapshot.get("market"), dict) else []), "config": config, "strategy": strategy, "trades": trades, "raw": snapshot})
 
 
 @app.get("/api/export")
@@ -127,12 +127,16 @@ def update_config():
         "matchday_protection_hours": (0, 120),
         "bid_window_minutes": (5, 30),
         "minimum_starting_probability": (1, 5),
-        "asking_price_percent": (0, 30),
+        "asking_price_percent": (-10, 30),
+        "minimum_offer_percent": (70, 120),
+        "rising_price_bonus_percent": (0, 20),
+        "falling_price_discount_percent": (0, 20),
+        "safe_s11_price_bonus_percent": (0, 20),
     }
     for key, (low, high) in numeric_limits.items():
         if key in incoming:
             config[key] = min(high, max(low, int(incoming[key])))
-    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings"):
+    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled"):
         if key in incoming:
             config[key] = bool(incoming[key])
     CONFIG.write_text(json.dumps(config, indent=2), encoding="utf-8")
