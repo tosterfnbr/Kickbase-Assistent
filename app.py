@@ -410,7 +410,8 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     """Plan in observe mode; execute the exact same bounded plan only in live mode."""
     stamp = datetime.now(timezone.utc).isoformat()
     live_mode = bool(config.get("trading_enabled")) and config.get("mode") == "live"
-    max_actions = max(1, min(5, int(config.get("max_actions_per_run", 1))))
+    action_setting = config.get("portfolio_actions_per_run", 3) if config.get("portfolio_mode", True) else config.get("max_actions_per_run", 1)
+    max_actions = max(1, min(5, int(action_setting)))
     min_cash = max(0, int(config.get("minimum_cash", 1_000_000)))
     max_overpay = max(0, min(30, float(config.get("maximum_overpay_percent", 8))))
     protect_hours = max(0, int(config.get("matchday_protection_hours", 48)))
