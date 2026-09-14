@@ -47,11 +47,12 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(counts[1], 1)
         self.assertEqual(sum(counts.values()), 11)
 
-    def test_unknown_s11_is_never_auto_sell_reason(self):
+    def test_unknown_s11_can_be_listed_but_never_instant_sold(self):
         squad = self.squad()
-        candidates = selling_candidates(squad, {"minimum_starting_probability": 3, "auto_instant_sell": True})
-        candidate_ids = {item["player_id"] for item in candidates}
-        self.assertNotIn("g2", candidate_ids)
+        candidates = selling_candidates(squad, {"minimum_starting_probability": 3, "auto_instant_sell": True, "list_all_players": True})
+        unknown = next(item for item in candidates if item["player_id"] == "g2")
+        self.assertEqual(unknown["method"], "list")
+        self.assertNotIn("S11", unknown["reason"])
 
     def test_good_offer_wins_before_price_adjustment(self):
         listed = player("sale", 2, 2, mv=10_000_000, owner="me")
