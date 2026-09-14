@@ -78,3 +78,27 @@ Preisanpassungen, Angebotsannahmen und Sofortverkäufe ausführen. Vorher bleibt
 sie im Testmodus. Ein Sofortverkauf geht direkt an KICKBASE und kann nicht
 rückgängig gemacht werden. Deshalb sind Startelf, Mindestkader, Mindestreserve,
 Spieltagsnähe und die maximale Zahl von Aktionen automatisch begrenzt.
+
+VERBESSERTE ENTSCHEIDUNGSLOGIK
+==============================
+S11 wird quellenbewusst ausgewertet: LigaInsider-Vorschau zuerst, KICKBASE als
+Fallback. Ein fehlender Wert wird als "unbekannt" angezeigt und blockiert
+automatische Käufe; er wird niemals als 0/5 oder als Verkaufsgrund behandelt.
+
+Die beste Elf wird automatisch aus mehreren gültigen Formationen ermittelt.
+S11-Sicherheit zählt am stärksten, danach Punkte, Marktwerttrend und Marktwert.
+Die ermittelte Elf ist bei der Verkaufsstrategie geschützt.
+
+Im Testmodus berechnet der Assistent exakt denselben Handelsplan wie im
+Live-Modus, führt jedoch keinen schreibenden KICKBASE-Aufruf aus. Unter
+"planned" im Export bzw. Live-Feed sind die vorgesehenen Aktionen sichtbar.
+
+Beim Verkauf gilt die Reihenfolge:
+1. Bereits gutes Angebot oberhalb der Verkaufsgrenze annehmen.
+2. Sonst den Angebotspreis dynamisch aus Marktwert, Trend und S11 bestimmen.
+3. Überschussspieler auf den Markt stellen.
+4. Nur bei fallendem Marktwert UND bestätigter niedriger S11-Chance sofort an
+   KICKBASE verkaufen. Unbekannte S11-Werte und die beste Elf sind geschützt.
+
+Die LigaInsider-Seitenstruktur kann sich ändern. Bei einem Abruf- oder
+Zuordnungsfehler bleibt die Quelle "unbekannt"; es wird kein Wert erfunden.
