@@ -41,5 +41,8 @@
   "star_sale_profit_percent": 10,
   "kickbest_enabled": true,
   "kickbest_url": "https://kickbest.app/",
-  "portfolio_actions_per_run": 3
+  "portfolio_actions_per_run": 3,
+  "continuous_bidding": true,
+  "bid_refresh_minutes": 30,
+  "player_details_refresh_minutes": 60
 }
