@@ -99,11 +99,17 @@ def s11_score(player):
 
 def _quality(player):
     s11 = s11_score(player)
-    points = _number(player, "averagePoints", "avgPoints", "ap", "points", "p")
+    performance = player.get("performance", {}) if isinstance(player, dict) else {}
+    points = performance.get("average_points")
+    if not isinstance(points, (int, float)):
+        points = _number(player, "averagePoints", "avgPoints", "ap", "points", "p")
+    ppm = performance.get("points_per_million")
+    if not isinstance(ppm, (int, float)):
+        ppm = 0
     value = _number(player, "marketValue", "mv") or 0
     trend = int(_number(player, "marketValueTrend", "mvt") or 0)
-    # S11 dominates. Unknown stays selectable only when a position cannot be filled otherwise.
-    return (s11 if s11 is not None else -1) * 1_000_000 + (points or 0) * 10_000 + (1 if trend == 2 else 0) * 1_000 + math.log10(max(value, 1))
+    # S11 dominates, followed by recent point output and value for money.
+    return (s11 if s11 is not None else -1) * 1_000_000 + (points or 0) * 10_000 + min(ppm, 100) * 500 + (1 if trend == 2 else 0) * 1_000 + math.log10(max(value, 1))
 
 
 def best_lineup(players):
@@ -199,7 +205,7 @@ def affordable_upgrades(squad, market_players, budget, config, user_id=""):
             "replace_player": weakest,
             "amount": price,
             "quality_gain": gain,
-            "reason": f"Startelf-Upgrade auf Position {_position(candidate)}; S11 {s11_score(candidate)}/5",
+            "reason": f"Startelf-Upgrade auf Position {_position(candidate)}; S11 {s11_score(candidate)}/5, Ø-Punkte {candidate.get('performance', {}).get('average_points') if isinstance(candidate.get('performance'), dict) else 'unbekannt'}, Preis-Leistung geprüft",
         })
         cash -= price
         used_in.add(cid)
