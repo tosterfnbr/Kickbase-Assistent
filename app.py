@@ -406,6 +406,44 @@ def normalized_squad(extra, market_players, user_id=""):
     return list(by_id.values())
 
 
+def hydrate_squad_details(client, league_id, players, config):
+    """Cache authenticated player details so squad values and stats are complete."""
+    DATA.mkdir(exist_ok=True)
+    cache_path = DATA / "player_details.json"
+    cache = load_json(cache_path, {})
+    entries = cache.get("players", {}) if isinstance(cache, dict) else {}
+    if not isinstance(entries, dict):
+        entries = {}
+    now = time.time()
+    ttl = max(15, int(config.get("player_details_refresh_minutes", 60))) * 60
+    output, changed = [], False
+    for original in players:
+        player = dict(original)
+        pid = engine_player_id(player)
+        entry = entries.get(pid, {}) if pid else {}
+        cached = entry.get("data", {}) if isinstance(entry, dict) else {}
+        if isinstance(cached, dict):
+            player = {**cached, **player}
+        fetched_at = entry.get("fetched_at", 0) if isinstance(entry, dict) else 0
+        stale = not isinstance(fetched_at, (int, float)) or now - fetched_at >= ttl
+        value = pick(player, "marketValue", "mv", default=0)
+        if pid and (stale or not isinstance(value, (int, float)) or value <= 0):
+            response = client.get_optional(f"/v4/leagues/{league_id}/players/{pid}")
+            payload = response.get("data", {}) if response.get("ok") else {}
+            detail = next((
+                item for item in walk_dicts(payload)
+                if str(pick(item, "id", "i", "playerId", "pi", default="")) == pid
+            ), payload if isinstance(payload, dict) else {})
+            if isinstance(detail, dict) and detail:
+                player = {**player, **detail}
+                entries[pid] = {"fetched_at": now, "data": detail}
+                changed = True
+        output.append(player)
+    if changed:
+        save_json(cache_path, {"updated_at": datetime.now(timezone.utc).isoformat(), "players": entries})
+    return output
+
+
 def run_trading(client, league_id, market_players, extra, config, live, user_id="", news_items=None):
     """Plan in observe mode; execute the exact same bounded plan only in live mode."""
     stamp = datetime.now(timezone.utc).isoformat()
@@ -486,7 +524,7 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
                 continue
             if mv <= 0 or score < min_s11 or (not is_target and int(pick(player, "marketValueTrend", "mvt", default=0) or 0) != 2):
                 continue
-            if expiry > int(config.get("bid_window_minutes", 10)) * 60:
+            if not config.get("continuous_bidding", True) and expiry > int(config.get("bid_window_minutes", 10)) * 60:
                 continue
             if name in risky_names or (name and name.split()[-1] in risky_names):
                 result["blocked"].append({"player_id": pid, "player": engine_player_name(player), "reason": "Kauf wegen aktuellem Risiko-Hinweis blockiert"})
@@ -497,6 +535,12 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
         plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
 
     priority = {"accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
+    bid_state_path = DATA / "submitted_bids.json"
+    bid_state = load_json(bid_state_path, {})
+    bid_state = bid_state if isinstance(bid_state, dict) else {}
+    market_ids = {engine_player_id(player) for player in market_players}
+    bid_state = {pid: item for pid, item in bid_state.items() if pid in market_ids}
+    bid_refresh = max(5, int(config.get("bid_refresh_minutes", 30))) * 60
     validated = []
     priced_actions = {"accept_offer", "buy", "list", "adjust_price"}
     for action in plan["actions"]:
@@ -508,6 +552,14 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
             isinstance(amount, bool) or not isinstance(amount, (int, float)) or amount <= 0
         )
         offer_id = str(pick(action.get("offer", {}), "offerId", "uoid", "id", "i"))
+        previous_bid = bid_state.get(pid, {}) if kind == "buy" else {}
+        same_recent_bid = (
+            kind == "buy"
+            and previous_bid.get("amount") == amount
+            and time.time() - float(previous_bid.get("time", 0) or 0) < bid_refresh
+        )
+        if same_recent_bid:
+            continue
         if kind not in priority or not pid or invalid_amount or (kind == "accept_offer" and not offer_id):
             result["blocked"].append({
                 "player_id": pid,
@@ -538,10 +590,13 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
             elif action["kind"] == "buy":
                 client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers", {"price": action["amount"]})
             entry = {**compact(action), "ok": True}
+            if action["kind"] == "buy":
+                bid_state[pid] = {"amount": action["amount"], "time": time.time()}
         except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
             entry = {**compact(action), "ok": False, "error": str(exc)[:240]}
         result["actions"].append(entry)
         trade_log(entry)
+    save_json(bid_state_path, bid_state)
     result["status"] = f"{sum(1 for item in result['actions'] if item['ok'])} Aktion(en) ausgeführt"
     return result
 
@@ -604,6 +659,7 @@ def run_once(safe_check=False):
     new_players = detect_new_market_players(players)
     user_id = pick(login, "id", "i", "userId", "ui", "u", default="")
     squad_players = normalized_squad(extra, players, user_id)
+    squad_players = hydrate_squad_details(client, league_id, squad_players, config)
     ligainsider = fetch_ligainsider(squad_players + players, config)
     players = enrich_s11(players, ligainsider)
     squad_players = enrich_s11(squad_players, ligainsider)
