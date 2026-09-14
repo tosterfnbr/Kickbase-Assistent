@@ -124,6 +124,7 @@ def update_config():
     numeric_limits = {
         "minimum_squad_size": (11, 30),
         "max_actions_per_run": (1, 5),
+        "portfolio_actions_per_run": (1, 5),
         "matchday_protection_hours": (0, 120),
         "bid_window_minutes": (5, 30),
         "minimum_starting_probability": (1, 5),
