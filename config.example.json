@@ -27,5 +27,11 @@
   "news_poll_minutes": 60,
   "news_max_age_hours": 72,
   "risk_news_hours": 36,
-  "x_monitor": false
+  "x_monitor": false,
+  "ligainsider_enabled": true,
+  "ligainsider_team_urls": [],
+  "minimum_offer_percent": 98,
+  "rising_price_bonus_percent": 3,
+  "falling_price_discount_percent": 2,
+  "safe_s11_price_bonus_percent": 2
 }

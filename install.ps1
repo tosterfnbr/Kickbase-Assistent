@@ -39,6 +39,9 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item (Join-Path $PSScriptRoot "app.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "decision_engine.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "ligainsider.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "requirements.txt") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "einrichten.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "dashboard.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "dashboard.html") $InstallDir -Force
@@ -54,7 +57,8 @@ if (-not (Test-Path (Join-Path $InstallDir ".venv\Scripts\python.exe"))) {
 }
 $Python = Join-Path $InstallDir ".venv\Scripts\python.exe"
 & $Python -m pip install --disable-pip-version-check --upgrade pip
-& $Python -m pip install requests keyring flask waitress
+& $Python -m pip install -r (Join-Path $InstallDir "requirements.txt")
+if ($LASTEXITCODE -ne 0) { throw "Python-Abhängigkeiten konnten nicht installiert werden." }
 
 $ConfigPath = Join-Path $InstallDir "config.json"
 if (-not (Test-Path $ConfigPath)) {

@@ -15,6 +15,9 @@ from xml.etree import ElementTree
 import keyring
 import requests
 
+from decision_engine import build_trade_plan, best_lineup, enrich_s11, pick as engine_pick, player_id as engine_player_id, player_name as engine_player_name, s11_score
+from ligainsider import fetch_ligainsider
+
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 LOG = ROOT / "kickbase-assistent.log"
@@ -62,17 +65,6 @@ class KickbaseClient:
         except ValueError:
             body = {}
         return {"status": response.status_code, "body": body}
-
-    def get_optional(self, *paths):
-        """Try known read-only endpoint variants without stopping the sync."""
-        for path in paths:
-            try:
-                response = self.session.get(API + path, timeout=20)
-                if response.ok:
-                    return response.json()
-            except requests.RequestException:
-                pass
-        return None
 
     def get_optional(self, *paths):
         for path in paths:
@@ -414,157 +406,110 @@ def normalized_squad(extra, market_players, user_id=""):
 
 
 def run_trading(client, league_id, market_players, extra, config, live, user_id="", news_items=None):
-    """Execute a small, bounded set of rule-based trades when real mode is armed."""
+    """Plan in observe mode; execute the exact same bounded plan only in live mode."""
     stamp = datetime.now(timezone.utc).isoformat()
-    result = {
-        "enabled": bool(config.get("trading_enabled")),
-        "mode": config.get("mode", "observe"),
-        "actions": [],
-        "blocked": [],
-    }
-    if not result["enabled"] or result["mode"] != "live":
-        result["status"] = "Testmodus"
-        return result
-
+    live_mode = bool(config.get("trading_enabled")) and config.get("mode") == "live"
     max_actions = max(1, min(5, int(config.get("max_actions_per_run", 1))))
     min_cash = max(0, int(config.get("minimum_cash", 1_000_000)))
     max_overpay = max(0, min(30, float(config.get("maximum_overpay_percent", 8))))
-    min_squad = max(11, int(config.get("minimum_squad_size", 11)))
     protect_hours = max(0, int(config.get("matchday_protection_hours", 48)))
     budget = find_number(extra.get("me", {}), "budget", "b", "cash", "bal")
-    lineup = player_list(extra.get("lineup", {}))
     squad = normalized_squad(extra, market_players, user_id)
-    protected = {str(pick(p, "id", "i", "playerId", "pi")) for p in lineup[:11]}
-    protected.update(str(item) for item in config.get("protected_players", []))
+    # Prefer already enriched objects supplied by run_once.
+    enriched_by_id = {engine_player_id(p): p for p in market_players + config.get("_enriched_squad", [])}
+    squad = [enriched_by_id.get(engine_player_id(p), p) for p in squad]
     near_matchday = (seconds_until_kickoff(live) or 10**12) <= protect_hours * 3600
-    risky_news_names = set()
-    risky_news_surnames = set()
+    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday)
+    result = {
+        "enabled": bool(config.get("trading_enabled")),
+        "mode": "live" if live_mode else "observe",
+        "status": "Aktiv" if live_mode else "Testmodus",
+        "actions": [],
+        "planned": [],
+        "blocked": list(plan["blocked"]),
+        "best_lineup": plan["lineup"],
+    }
+
+    risky_names = set()
     risk_hours = max(1, int(config.get("risk_news_hours", 36)))
     for item in news_items or []:
-        if not isinstance(item, dict) or not item.get("player"):
-            continue
-        source_time = news_datetime(item)
+        source_time = news_datetime(item) if isinstance(item, dict) else None
         if source_time and (datetime.now(timezone.utc) - source_time).total_seconds() <= risk_hours * 3600:
-            risk_name = str(item["player"]).casefold().strip()
-            risky_news_names.add(risk_name)
-            if risk_name:
-                risky_news_surnames.add(risk_name.split()[-1])
+            name = str(item.get("player", "")).casefold().strip()
+            if name:
+                risky_names.add(name)
+                risky_names.add(name.split()[-1])
 
-    def record(action, player, reason, amount=None, ok=True, error=None):
-        entry = {
+    def compact(action):
+        player = action.get("player", {})
+        return {
             "time": stamp,
-            "action": action,
-            "player_id": str(pick(player, "id", "i", "playerId", "pi")),
-            "player": " ".join(str(x) for x in (pick(player, "firstName", "fn"), pick(player, "lastName", "n", "name")) if x).strip(),
-            "reason": reason,
-            "amount": amount,
-            "ok": ok,
+            "action": action["kind"],
+            "player_id": engine_player_id(player),
+            "player": engine_player_name(player),
+            "reason": action.get("reason", ""),
+            "amount": action.get("amount"),
         }
-        if error:
-            entry["error"] = str(error)[:240]
-        result["actions"].append(entry)
-        trade_log(entry)
 
-    # Existing own listings: adjust the asking price, then accept only sufficiently high offers.
+    # Add late-buy proposals using corrected S11 semantics. Unknown never means 0/5.
     own_id = str(user_id or config.get("user_id", ""))
-    for player in market_players:
-        if len(result["actions"]) >= max_actions:
-            break
-        owner = str(pick(player, "userId", "ui", "u", default=""))
-        if not own_id or owner != own_id:
-            continue
-        player_id = str(pick(player, "id", "i", "playerId", "pi"))
-        market_value = int(pick(player, "marketValue", "mv", default=0) or 0)
-        target_price = round(market_value * (1 + float(config.get("asking_price_percent", 2)) / 100))
-        current_price = int(pick(player, "price", "prc", "p", default=0) or 0)
-        try:
-            if config.get("auto_adjust_listings", True) and target_price > 0 and abs(current_price - target_price) >= 10_000:
-                client.write("PUT", f"/v4/leagues/{league_id}/market/{player_id}", {"price": target_price})
-                record("Preis angepasst", player, "Marktwertbasierter Angebotspreis", target_price)
-                continue
-            offers = pick(player, "offers", "ofs", default=[]) or []
-            valid = [offer for offer in offers if int(pick(offer, "price", "prc", "p", default=0) or 0) >= target_price]
-            if config.get("auto_accept_offers", True) and valid:
-                best = max(valid, key=lambda offer: int(pick(offer, "price", "prc", "p", default=0) or 0))
-                offer_id = str(pick(best, "offerId", "uoid", "id", "i"))
-                price = int(pick(best, "price", "prc", "p", default=0) or 0)
-                client.write("POST", f"/v4/leagues/{league_id}/market/{player_id}/offers/{offer_id}/accept", {})
-                record("Angebot angenommen", player, "Bestes Angebot erreicht Verkaufsgrenze", price)
-        except requests.RequestException as exc:
-            record("Handelsfehler", player, "Angebot konnte nicht verarbeitet werden", ok=False, error=exc)
-
-    # Instant sale to KICKBASE is intentionally limited to non-lineup surplus players.
-    if config.get("auto_instant_sell", True) and not near_matchday:
-        counts = {pos: sum(1 for p in squad if int(pick(p, "position", "pos", default=0) or 0) == pos) for pos in range(1, 5)}
-        minimum_by_position = {1: 1, 2: 3, 3: 3, 4: 1}
-        candidates = sorted(squad, key=lambda p: (int(pick(p, "prob", "lineupProbability", default=0) or 0), int(pick(p, "marketValueTrend", "mvt", default=0) or 0) != 1))
-        for player in candidates:
-            if len(result["actions"]) >= max_actions or len(squad) <= min_squad:
-                break
-            player_id = str(pick(player, "id", "i", "playerId", "pi"))
-            pos = int(pick(player, "position", "pos", default=0) or 0)
-            s11 = int(pick(player, "prob", "lineupProbability", default=0) or 0)
-            trend = int(pick(player, "marketValueTrend", "mvt", default=0) or 0)
-            if player_id in protected or counts.get(pos, 0) <= minimum_by_position.get(pos, 1):
-                continue
-            if trend != 1 or s11 >= int(config.get("minimum_starting_probability", 3)):
-                continue
-            reason = f"Fallender Marktwert, Kaderüberschuss und niedrige S11-Chance ({s11}/5)"
-            try:
-                client.write("POST", f"/v4/leagues/{league_id}/market/{player_id}/sell", {})
-                record("Sofortverkauf an KICKBASE", player, reason, int(pick(player, "marketValue", "mv", default=0) or 0))
-                counts[pos] -= 1
-                squad.remove(player)
-            except requests.RequestException as exc:
-                record("Handelsfehler", player, "Sofortverkauf fehlgeschlagen", ok=False, error=exc)
-
-    # Bid late and only inside the configured budget/risk limits.
+    targets = {str(item) for item in config.get("targets", [])}
+    target_names = {str(item).casefold().strip() for item in config.get("watchlist_names", []) if str(item).strip()}
+    min_s11 = max(1, min(5, int(config.get("minimum_starting_probability", 3))))
     if config.get("auto_buy", True) and isinstance(budget, (int, float)):
-        min_s11 = max(1, min(5, int(config.get("minimum_starting_probability", 3))))
-        targets = {str(item) for item in config.get("targets", [])}
-        target_names = {str(item).casefold().strip() for item in config.get("watchlist_names", []) if str(item).strip()}
-        candidates = []
+        buy_candidates = []
         for player in market_players:
-            owner = str(pick(player, "userId", "ui", "u", default=""))
-            player_id = str(pick(player, "id", "i", "playerId", "pi"))
-            if own_id and owner == own_id:
+            pid = engine_player_id(player)
+            if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
                 continue
             mv = int(pick(player, "marketValue", "mv", default=0) or 0)
             price = int(pick(player, "price", "prc", "p", default=mv) or mv)
             expiry = int(pick(player, "expiry", "exs", default=10**9) or 10**9)
-            s11 = int(pick(player, "prob", "lineupProbability", default=0) or 0)
-            trend = int(pick(player, "marketValueTrend", "mvt", default=0) or 0)
-            player_name = display_name(player).casefold()
-            is_target = player_id in targets or player_name in target_names
-            if mv <= 0 or s11 < min_s11 or (not is_target and trend != 2):
+            score = s11_score(player)
+            name = engine_player_name(player).casefold()
+            is_target = pid in targets or name in target_names
+            if score is None:
+                result["blocked"].append({"player_id": pid, "player": engine_player_name(player), "reason": "Kauf blockiert: S11-Chance unbekannt"})
                 continue
-            if expiry > int(config.get("bid_window_minutes", 20)) * 60:
+            if mv <= 0 or score < min_s11 or (not is_target and int(pick(player, "marketValueTrend", "mvt", default=0) or 0) != 2):
                 continue
-            player_surname = player_name.split()[-1] if player_name else ""
-            if player_name in risky_news_names or player_surname in risky_news_surnames:
-                result["blocked"].append({
-                    "time": stamp,
-                    "player_id": player_id,
-                    "player": display_name(player),
-                    "reason": "Kauf wegen aktuellem Startelf-/Verletzungshinweis blockiert",
-                })
+            if expiry > int(config.get("bid_window_minutes", 10)) * 60:
                 continue
-            max_bid = round(mv * (1 + max_overpay / 100))
+            if name in risky_names or (name and name.split()[-1] in risky_names):
+                result["blocked"].append({"player_id": pid, "player": engine_player_name(player), "reason": "Kauf wegen aktuellem Risiko-Hinweis blockiert"})
+                continue
             bid = max(mv, price)
-            if bid <= max_bid and budget - bid >= min_cash:
-                candidates.append((not is_target, expiry, bid, player))
-        for _, _, bid, player in sorted(candidates):
-            if len(result["actions"]) >= max_actions:
-                break
-            player_id = str(pick(player, "id", "i", "playerId", "pi"))
-            try:
-                client.write("POST", f"/v4/leagues/{league_id}/market/{player_id}/offers", {"price": bid})
-                record("Gebot abgegeben/angepasst", player, "Zielliste oder steigender Marktwert innerhalb der Regeln", bid)
-                budget -= bid
-            except requests.RequestException as exc:
-                record("Handelsfehler", player, "Gebot fehlgeschlagen", bid, ok=False, error=exc)
+            if bid <= round(mv * (1 + max_overpay / 100)) and budget - bid >= min_cash:
+                buy_candidates.append((not is_target, -score, expiry, {"kind": "buy", "player": player, "amount": bid, "reason": f"S11 {score}/5, Preis innerhalb der Grenze"}))
+        plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
 
-    result["status"] = "Aktiv" if not result["actions"] else f"{sum(1 for a in result['actions'] if a['ok'])} Aktion(en) ausgeführt"
+    selected = plan["actions"][:max_actions]
+    result["planned"] = [compact(action) for action in selected]
+    if not live_mode:
+        result["status"] = f"Testmodus: {len(selected)} geplante Aktion(en)"
+        return result
+
+    for action in selected:
+        player = action.get("player", {})
+        pid = engine_player_id(player)
+        try:
+            if action["kind"] == "accept_offer":
+                offer_id = str(pick(action["offer"], "offerId", "uoid", "id", "i"))
+                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers/{offer_id}/accept", {})
+            elif action["kind"] == "adjust_price":
+                client.write("PUT", f"/v4/leagues/{league_id}/market/{pid}", {"price": action["amount"]})
+            elif action["kind"] == "instant_sell":
+                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/sell", {})
+            elif action["kind"] == "list":
+                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}", {"price": action["amount"]})
+            elif action["kind"] == "buy":
+                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers", {"price": action["amount"]})
+            entry = {**compact(action), "ok": True}
+        except requests.RequestException as exc:
+            entry = {**compact(action), "ok": False, "error": str(exc)[:240]}
+        result["actions"].append(entry)
+        trade_log(entry)
+    result["status"] = f"{sum(1 for item in result['actions'] if item['ok'])} Aktion(en) ausgeführt"
     return result
 
 
@@ -621,6 +566,11 @@ def run_once():
     new_players = detect_new_market_players(players)
     user_id = pick(login, "id", "i", "userId", "ui", "u", default="")
     squad_players = normalized_squad(extra, players, user_id)
+    ligainsider = fetch_ligainsider(squad_players + players, config)
+    players = enrich_s11(players, ligainsider)
+    squad_players = enrich_s11(squad_players, ligainsider)
+    config["_enriched_squad"] = squad_players
+    recommended_lineup = best_lineup(squad_players)
     watched_players = [{"name": name} for name in config.get("watchlist_names", []) if str(name).strip()]
     news, new_news = news_monitor(squad_players + players + watched_players, config)
     trading = run_trading(client, league_id, players, extra, config, live, user_id, news.get("items", []))
@@ -658,6 +608,9 @@ def run_once():
         "league_meta": league,
         "user_id": user_id,
         "squad": squad_players,
+        "players": players,
+        "best_lineup": recommended_lineup,
+        "ligainsider": ligainsider,
         "sections": extra,
         "live": live,
         "value_history": history,
