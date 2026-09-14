@@ -17,6 +17,7 @@ import requests
 
 from decision_engine import build_trade_plan, best_lineup, enrich_s11, pick as engine_pick, player_id as engine_player_id, player_name as engine_player_name, s11_score
 from ligainsider import fetch_ligainsider
+from stats_provider import enrich_performance, fetch_kickbest
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -442,13 +443,18 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
 
     def compact(action):
         player = action.get("player", {})
+        amount = action.get("amount")
+        paid = int(pick(player, "purchasePrice", "buyPrice", "bp", "bpr", default=0) or 0)
+        profit = amount - paid if paid and isinstance(amount, (int, float)) and action.get("kind") in ("accept_offer", "instant_sell") else None
         return {
             "time": stamp,
             "action": action["kind"],
             "player_id": engine_player_id(player),
             "player": engine_player_name(player),
             "reason": action.get("reason", ""),
-            "amount": action.get("amount"),
+            "amount": amount,
+            "purchase_price": paid or None,
+            "profit": profit,
         }
 
     # Add late-buy proposals using corrected S11 semantics. Unknown never means 0/5.
@@ -570,6 +576,9 @@ def run_once():
     ligainsider = fetch_ligainsider(squad_players + players, config)
     players = enrich_s11(players, ligainsider)
     squad_players = enrich_s11(squad_players, ligainsider)
+    kickbest = fetch_kickbest(squad_players + players, config)
+    players = enrich_performance(players, kickbest)
+    squad_players = enrich_performance(squad_players, kickbest)
     config["_enriched_squad"] = squad_players
     recommended_lineup = best_lineup(squad_players)
     watched_players = [{"name": name} for name in config.get("watchlist_names", []) if str(name).strip()]
@@ -584,7 +593,9 @@ def run_once():
         ])
     if trading.get("actions"):
         notification_lines.extend(["", "AUTOMATISCHE HANDELSAKTIONEN:"] + [
-            f"• {item['action']}: {item['player']} ({item['reason']})"
+            f"• {item['action']}: {item['player']} – {int(item.get('amount') or 0):,} €"
+            + (f" · Gewinn {int(item['profit']):,} €" if item.get("profit") is not None else "")
+            + f" ({item['reason']})"
             for item in trading["actions"]
         ])
     if trading.get("blocked"):
@@ -612,6 +623,7 @@ def run_once():
         "players": players,
         "best_lineup": recommended_lineup,
         "ligainsider": ligainsider,
+        "kickbest": kickbest,
         "sections": extra,
         "live": live,
         "value_history": history,
