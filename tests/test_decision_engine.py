@@ -66,5 +66,19 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(limits["asking"], 10_700_000)
 
 
+    def test_portfolio_lists_core_and_reserve_players(self):
+        squad = self.squad()
+        plan = build_trade_plan([], squad, {"portfolio_mode": True, "list_all_players": True}, "me", False, 0)
+        listed = [item for item in plan["actions"] if item["kind"] == "list"]
+        self.assertEqual(len(listed), len(squad))
+        self.assertTrue(any(item["is_core"] for item in listed))
+        self.assertTrue(any(not item["is_core"] for item in listed))
+
+    def test_purchase_price_and_star_profit_protect_offer_floor(self):
+        star = player("star", 3, 5, mv=10_000_000, trend=2)
+        star["purchasePrice"] = 12_000_000
+        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10}, is_core=True)
+        self.assertGreaterEqual(limits["accept"], 13_200_000)
+
 if __name__ == "__main__":
     unittest.main()
