@@ -1,0 +1,39 @@
+{
+  "manager": "Sike El Schmaler",
+  "league": "Bierbanausen",
+  "goals": [
+    "Spieltagskader und sichere Startelf haben immer Vorrang",
+    "Mit Trading-Spielern Marktwertplus erzielen",
+    "Spieler aus Top-Teams bevorzugen, wenn Preis und Einsatzchance passen",
+    "Verletzungen, Rotation und Mehrfachbelastung berücksichtigen"
+  ],
+  "league_rules": [
+    "Spieltags-MVP nach dem Spieltag an KICKBASE verkaufen",
+    "Soft-Reset zur Winterpause",
+    "Kein Kauf unter Marktwert",
+    "Unvollständige Mannschaft kann eine Strafe verursachen"
+  ],
+  "signals": {
+    "buy": "🟢",
+    "watch": "🟡",
+    "avoid_or_sell": "🔴",
+    "priority": "⭐",
+    "bid": "💰"
+  },
+  "information_sources": [
+    {"name": "KICKBASE Live-Daten", "url": "https://www.kickbase.com/"},
+    {"name": "Google News", "url": "https://news.google.com/", "note": "Öffentliche Meldungen"},
+    {"name": "LigaInsider", "url": "https://www.ligainsider.de/mobile/"},
+    {"name": "KBstats", "url": "https://kbstats.de/"},
+    {"name": "Base-XI", "url": "https://www.base-xi.de/players"},
+    {"name": "KickbaseNerd – Scouting-Tool", "url": "https://kbnerd.de/das-kickbase-scouting-tool/"},
+    {"name": "YouTube-Quelle", "url": "https://youtu.be/fTljgfo4N3o"},
+    {"name": "TikTok – erste Quelle", "url": "https://vm.tiktok.com/ZGdxaJ6eK/"},
+    {"name": "TikTok – Trading-Spieler", "url": "https://vm.tiktok.com/ZGdQj7SDS/"},
+    {"name": "Reddit – Trading-Taktik", "url": "https://www.reddit.com/r/kickbasemanager/s/GbqnqxdyRN"},
+    {"name": "Kickbaseguide", "url": null, "note": "Kein eindeutiger Profil-Link vorhanden"},
+    {"name": "Fabrizio Romano / Transfernews", "url": null, "note": "Kein konkreter Profil-Link vorhanden"},
+    {"name": "X Recent Search", "url": "https://developer.x.com/", "note": "Nur mit eigenem API-Zugang"}
+  ],
+  "news_safety": "Unbestätigte Hinweise blockieren automatische Käufe und erzeugen Warnungen. Sie lösen niemals allein einen automatischen Verkauf aus."
+}
