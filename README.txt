@@ -102,3 +102,34 @@ Beim Verkauf gilt die Reihenfolge:
 
 Die LigaInsider-Seitenstruktur kann sich ändern. Bei einem Abruf- oder
 Zuordnungsfehler bleibt die Quelle "unbekannt"; es wird kein Wert erfunden.
+
+
+PORTFOLIO- UND GEWINNMODUS
+==========================
+Im Portfolio-Modus darf jeder nicht manuell geschützte Spieler auf den
+Transfermarkt gestellt werden. Das gilt auch für Spieler der aktuell besten
+Elf. Für diese Kernspieler setzt der Assistent bewusst höhere Ziel- und
+Gewinngrenzen. Ein gutes Angebot für einen Kernspieler wird nur angenommen,
+wenn Positionsreserve oder ein bezahlbares Startelf-Upgrade vorhanden ist.
+Innerhalb des Spieltag-Schutzfensters werden neue Verkäufe blockiert.
+
+Für Käufe bewertet der Assistent gemeinsam:
+- bestätigte S11-Chance und Quelle,
+- durchschnittliche und gesamte Punkte, soweit geliefert,
+- Punkte pro Million Marktwert,
+- Marktwerttrend,
+- Kaufpreis, verfügbares Budget und Mindestreserve,
+- Qualitätsgewinn gegenüber dem derzeit schwächsten Startelfspieler.
+
+Kickbest (https://kickbest.app/) wird als optionale öffentliche Statistikquelle
+abgerufen. Nur eindeutig strukturierte und eindeutig zuordenbare Spielerdaten
+werden übernommen. Sind keine öffentlich auslesbaren Daten verfügbar, nutzt
+der Assistent die vorhandenen KICKBASE-Statistiken und zeigt Kickbest als nicht
+verfügbar an.
+
+VERKAUFSBENACHRICHTIGUNGEN
+=========================
+Nach einem tatsächlich ausgeführten Verkauf enthält die Benachrichtigung
+Spieler, Verkaufspreis, berechenbaren Gewinn und den Entscheidungsgrund.
+Dafür einmal BENACHRICHTIGUNGEN-EINRICHTEN.bat ausführen. Im Testmodus stehen
+alle geplanten Aktionen zusätzlich sichtbar im Dashboard und im JSON-Export.
