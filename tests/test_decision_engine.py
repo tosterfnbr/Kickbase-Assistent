@@ -74,6 +74,7 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertEqual(len(listed), len(squad))
         self.assertTrue(any(item["is_core"] for item in listed))
         self.assertTrue(any(not item["is_core"] for item in listed))
+        self.assertTrue(all(isinstance(item.get("amount"), int) and item["amount"] > 0 for item in listed))
 
     def test_purchase_price_and_star_profit_protect_offer_floor(self):
         star = player("star", 3, 5, mv=10_000_000, trend=2)

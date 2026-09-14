@@ -310,7 +310,10 @@ def build_trade_plan(market_players, squad, config, user_id="", near_matchday=Fa
     else:
         for item in selling_candidates(squad, config, config.get("protected_players", [])):
             if item["player_id"] not in own_listings:
-                actions.append({"kind": item["method"], **item})
+                action = {"kind": item["method"], **item}
+                if action["kind"] == "list":
+                    action["amount"] = item["asking"]
+                actions.append(action)
 
     actions.extend(upgrade_plan["buys"])
     return {

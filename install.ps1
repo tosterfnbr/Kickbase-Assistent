@@ -77,7 +77,7 @@ $StartupContent = '@start "" /min "' + $Pythonw + '" "' + $AppFile + '" --loop'
 Set-Content -Path $StartupFile -Value $StartupContent -Encoding Ascii
 
 Write-Host "Verbindungstest läuft..." -ForegroundColor Cyan
-& $Python (Join-Path $InstallDir "app.py") --once
+& $Python (Join-Path $InstallDir "app.py") --once --safe-check
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installation eingerichtet, aber der Verbindungstest ist fehlgeschlagen." -ForegroundColor Red
     Write-Host "Bitte einen Screenshot dieser Meldung senden."

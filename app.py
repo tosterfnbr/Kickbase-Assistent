@@ -497,7 +497,26 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
         plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
 
     priority = {"accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
-    selected = sorted(plan["actions"], key=lambda item: priority.get(item.get("kind"), 9))[:max_actions]
+    validated = []
+    priced_actions = {"accept_offer", "buy", "list", "adjust_price"}
+    for action in plan["actions"]:
+        kind = action.get("kind")
+        player = action.get("player", {})
+        pid = engine_player_id(player)
+        amount = action.get("amount")
+        invalid_amount = kind in priced_actions and (
+            isinstance(amount, bool) or not isinstance(amount, (int, float)) or amount <= 0
+        )
+        offer_id = str(pick(action.get("offer", {}), "offerId", "uoid", "id", "i"))
+        if kind not in priority or not pid or invalid_amount or (kind == "accept_offer" and not offer_id):
+            result["blocked"].append({
+                "player_id": pid,
+                "player": engine_player_name(player) or "Unbekannter Spieler",
+                "reason": "Aktion blockiert: unvollständige oder ungültige Handelsdaten",
+            })
+            continue
+        validated.append(action)
+    selected = sorted(validated, key=lambda item: priority[item["kind"]])[:max_actions]
     result["planned"] = [compact(action) for action in selected]
     if not live_mode:
         result["status"] = f"Testmodus: {len(selected)} geplante Aktion(en)"
@@ -519,7 +538,7 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
             elif action["kind"] == "buy":
                 client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers", {"price": action["amount"]})
             entry = {**compact(action), "ok": True}
-        except requests.RequestException as exc:
+        except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
             entry = {**compact(action), "ok": False, "error": str(exc)[:240]}
         result["actions"].append(entry)
         trade_log(entry)
@@ -527,12 +546,17 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     return result
 
 
-def run_once():
+def run_once(safe_check=False):
     email = keyring.get_password(APP, "email")
     password = keyring.get_password(APP, "password")
     if not email or not password:
         raise RuntimeError("Keine lokalen Zugangsdaten gefunden. Bitte INSTALLIEREN.bat erneut starten.")
     config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    if safe_check:
+        # Installation checks connectivity and data reads only. Never trade here,
+        # even when an existing configuration is already in live mode.
+        config["trading_enabled"] = False
+        config["mode"] = "observe"
     client = KickbaseClient()
     login = client.login(email, password)
     wanted = config["league_name"].casefold()
@@ -649,6 +673,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--safe-check", action="store_true")
     args = parser.parse_args()
     if args.loop:
         while True:
@@ -660,7 +685,7 @@ def main():
             config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
             time.sleep(max(5, int(config.get("poll_minutes", 15))) * 60)
     else:
-        run_once()
+        run_once(safe_check=args.safe_check)
 
 
 if __name__ == "__main__":
