@@ -129,90 +129,182 @@ def best_lineup(players):
     return best
 
 
-def price_limits(player, config):
-    """Dynamic list and acceptance prices, bounded by configured percentages."""
+def price_limits(player, config, is_core=False):
+    """Calculate profitable list/accept limits from value, trend, S11 and buy price."""
     mv = int(_number(player, "marketValue", "mv") or 0)
     if mv <= 0:
-        return {"asking": 0, "accept": 0}
+        return {"asking": 0, "accept": 0, "basis": 0}
+    paid = int(_number(player, "purchasePrice", "buyPrice", "bp", "bpr") or 0)
+    basis = max(mv, paid)
     score = s11_score(player)
     trend = int(_number(player, "marketValueTrend", "mvt") or 0)
-    base_markup = float(config.get("asking_price_percent", 2))
+    markup = float(config.get("asking_price_percent", 2))
     if trend == 2:
-        base_markup += float(config.get("rising_price_bonus_percent", 3))
+        markup += float(config.get("rising_price_bonus_percent", 3))
     elif trend == 1:
-        base_markup -= float(config.get("falling_price_discount_percent", 2))
+        markup -= float(config.get("falling_price_discount_percent", 2))
     if score is not None and score >= 4:
-        base_markup += float(config.get("safe_s11_price_bonus_percent", 2))
-    markup = max(-10, min(30, base_markup))
-    minimum_offer = max(70, min(120, float(config.get("minimum_offer_percent", 98))))
+        markup += float(config.get("safe_s11_price_bonus_percent", 2))
+    if is_core:
+        markup += float(config.get("star_listing_bonus_percent", 8))
+    markup = max(-10, min(50, markup))
+    minimum_offer = max(70, min(150, float(config.get("minimum_offer_percent", 98))))
+    profit_floor = paid * (1 + float(config.get("target_profit_percent", 4)) / 100) if paid else 0
+    core_floor = basis * (1 + float(config.get("star_sale_profit_percent", 10)) / 100) if is_core else 0
     return {
-        "asking": int(round(mv * (1 + markup / 100) / 1000) * 1000),
-        "accept": int(round(mv * minimum_offer / 100 / 1000) * 1000),
+        "asking": int(round(basis * (1 + markup / 100) / 1000) * 1000),
+        "accept": int(round(max(mv * minimum_offer / 100, profit_floor, core_floor) / 1000) * 1000),
+        "basis": basis,
     }
+
+
+def _position(player):
+    return int(_number(player, "position", "pos") or 0)
+
+
+def affordable_upgrades(squad, market_players, budget, config, user_id=""):
+    """Plan point upgrades greedily while preserving cash and a valid XI."""
+    lineup = best_lineup(squad)
+    selected = list(lineup["players"])
+    cash = max(0, int(budget or 0) - int(config.get("minimum_cash", 1_000_000)))
+    own_id = str(user_id or config.get("user_id", ""))
+    min_s11 = int(config.get("minimum_starting_probability", 3))
+    proposals = []
+    candidates = []
+    for candidate in market_players:
+        if own_id and str(pick(candidate, "userId", "ui", "u", default="")) == own_id:
+            continue
+        score = s11_score(candidate)
+        price = int(_number(candidate, "price", "prc", "marketValue", "mv") or 0)
+        pos = _position(candidate)
+        if score is None or score < min_s11 or price <= 0 or pos not in POSITION_MINIMUM:
+            continue
+        incumbents = [p for p in selected if _position(p) == pos]
+        if not incumbents:
+            continue
+        weakest = min(incumbents, key=_quality)
+        gain = _quality(candidate) - _quality(weakest)
+        if gain > 0:
+            candidates.append((gain / max(price, 1), gain, price, candidate, weakest))
+    used_in, used_out = set(), set()
+    for _, gain, price, candidate, weakest in sorted(candidates, reverse=True, key=lambda row: (row[0], row[1])):
+        cid, wid = player_id(candidate), player_id(weakest)
+        if cid in used_in or wid in used_out or price > cash:
+            continue
+        proposals.append({
+            "kind": "buy",
+            "player": candidate,
+            "player_id": cid,
+            "replace_player_id": wid,
+            "replace_player": weakest,
+            "amount": price,
+            "quality_gain": gain,
+            "reason": f"Startelf-Upgrade auf Position {_position(candidate)}; S11 {s11_score(candidate)}/5",
+        })
+        cash -= price
+        used_in.add(cid)
+        used_out.add(wid)
+    return {"current_lineup": lineup, "buys": proposals, "remaining_cash": cash}
 
 
 def selling_candidates(squad, config, protected_ids=()):
     lineup = best_lineup(squad)
-    protected = set(map(str, protected_ids)) | {player_id(p) for p in lineup["players"]}
-    counts = Counter(int(_number(p, "position", "pos") or 0) for p in squad)
+    core_ids = {player_id(p) for p in lineup["players"]}
+    manual = set(map(str, protected_ids))
+    counts = Counter(_position(p) for p in squad)
     candidates = []
     min_s11 = int(config.get("minimum_starting_probability", 3))
+    portfolio = bool(config.get("portfolio_mode", True))
+    list_all = bool(config.get("list_all_players", True))
     for player in squad:
-        pid = player_id(player)
-        pos = int(_number(player, "position", "pos") or 0)
+        pid, pos = player_id(player), _position(player)
+        if pid in manual:
+            continue
         score = s11_score(player)
         trend = int(_number(player, "marketValueTrend", "mvt") or 0)
-        if pid in protected or counts[pos] <= POSITION_MINIMUM.get(pos, 1):
+        is_core = pid in core_ids
+        limits = price_limits(player, config, is_core=is_core)
+        if list_all:
+            candidates.append({
+                "player": player, "player_id": pid, "severity": 0, "is_core": is_core,
+                "reason": "Kapitalangebot testen" + ("; aktuell beste Elf" if is_core else "; Kaderreserve"),
+                "method": "list", **limits,
+            })
             continue
-        # Unknown S11 is never an automatic sell reason.
-        if score is None:
+        if is_core and not portfolio:
             continue
-        reasons = []
-        severity = 0
+        if counts[pos] <= POSITION_MINIMUM.get(pos, 1) or score is None:
+            continue
+        reasons, severity = [], 0
         if score < min_s11:
             reasons.append(f"S11 {score}/5 unter Grenze")
             severity += 2
         if trend == 1:
             reasons.append("Marktwert fällt")
             severity += 1
-        if not reasons:
-            continue
-        limits = price_limits(player, config)
-        candidates.append({
-            "player": player,
-            "player_id": pid,
-            "severity": severity,
-            "reason": ", ".join(reasons),
-            "method": "instant_sell" if severity >= 3 and config.get("auto_instant_sell", True) else "list",
-            **limits,
-        })
-    return sorted(candidates, key=lambda item: (-item["severity"], _quality(item["player"])))
+        if reasons:
+            candidates.append({
+                "player": player, "player_id": pid, "severity": severity, "is_core": is_core,
+                "reason": ", ".join(reasons),
+                "method": "instant_sell" if severity >= 3 and config.get("auto_instant_sell", True) and not is_core else "list",
+                **limits,
+            })
+    return sorted(candidates, key=lambda item: (item["is_core"], -item["severity"], _quality(item["player"])))
 
 
-def build_trade_plan(market_players, squad, config, user_id="", near_matchday=False):
-    """Create deterministic actions in both observe and live mode."""
+def build_trade_plan(market_players, squad, config, user_id="", near_matchday=False, budget=0):
+    """List the portfolio, take profitable offers and plan affordable XI upgrades."""
     own_id = str(user_id or config.get("user_id", ""))
-    actions, blocked = [], []
-    own_listings = {}
+    lineup = best_lineup(squad)
+    core_ids = {player_id(p) for p in lineup["players"]}
+    position_counts = Counter(_position(p) for p in squad)
+    upgrade_plan = affordable_upgrades(squad, market_players, budget, config, user_id)
+    replacement_for = {item["replace_player_id"]: item for item in upgrade_plan["buys"]}
+    actions, blocked, own_listings = [], [], {}
+
     for player in market_players:
         if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
-            own_listings[player_id(player)] = player
-            limits = price_limits(player, config)
+            pid = player_id(player)
+            own_listings[pid] = player
+            is_core = pid in core_ids
+            limits = price_limits(player, config, is_core=is_core)
             offers = pick(player, "offers", "ofs", default=[]) or []
             priced = [(int(_number(o, "price", "prc", "p") or 0), o) for o in offers]
             best_offer = max(priced, default=(0, None), key=lambda item: item[0])
-            if config.get("auto_accept_offers", True) and best_offer[1] and best_offer[0] >= limits["accept"]:
-                actions.append({"kind": "accept_offer", "player": player, "player_id": player_id(player), "amount": best_offer[0], "offer": best_offer[1], "reason": "Bestes Angebot erreicht die Verkaufsgrenze"})
+            has_depth = position_counts[_position(player)] > POSITION_MINIMUM.get(_position(player), 1)
+            replacement_ready = pid in replacement_for
+            sale_safe = not is_core or has_depth or replacement_ready
+            if config.get("auto_accept_offers", True) and best_offer[1] and best_offer[0] >= limits["accept"] and sale_safe and not near_matchday:
+                actions.append({
+                    "kind": "accept_offer", "player": player, "player_id": pid,
+                    "amount": best_offer[0], "offer": best_offer[1],
+                    "reason": "Gewinnziel erreicht" + (" und Ersatz/Positionsreserve vorhanden" if is_core else ""),
+                })
+            elif best_offer[1] and best_offer[0] >= limits["accept"] and not sale_safe:
+                blocked.append({"player_id": pid, "player": player_name(player), "reason": "Gutes Angebot blockiert: noch kein sicherer Ersatz"})
             else:
                 current = int(_number(player, "price", "prc", "p") or 0)
                 if config.get("auto_adjust_listings", True) and limits["asking"] and abs(current - limits["asking"]) >= 10_000:
-                    actions.append({"kind": "adjust_price", "player": player, "player_id": player_id(player), "amount": limits["asking"], "reason": "Dynamischer Zielpreis aus Marktwert, Trend und S11"})
+                    actions.append({"kind": "adjust_price", "player": player, "player_id": pid, "amount": limits["asking"], "reason": "Gewinnorientierter Zielpreis aus Kaufpreis, Marktwert, Trend und S11"})
+
     if near_matchday:
-        blocked.append({"kind": "selling", "reason": "Verkäufe innerhalb des Spieltag-Schutzfensters blockiert"})
+        blocked.append({"kind": "selling", "reason": "Annahmen und neue Verkäufe im Spieltag-Schutzfenster blockiert"})
     else:
-        protected = config.get("protected_players", [])
-        for item in selling_candidates(squad, config, protected):
-            if item["player_id"] in own_listings:
-                continue
-            actions.append({"kind": item["method"], **item})
-    return {"lineup": best_lineup(squad), "actions": actions, "blocked": blocked}
+        for item in selling_candidates(squad, config, config.get("protected_players", [])):
+            if item["player_id"] not in own_listings:
+                actions.append({"kind": item["method"], **item})
+
+    actions.extend(upgrade_plan["buys"])
+    return {
+        "lineup": lineup,
+        "target_lineup": lineup,
+        "upgrades": upgrade_plan["buys"],
+        "actions": actions,
+        "blocked": blocked,
+        "portfolio": {
+            "listed_or_planned": len(own_listings) + sum(a["kind"] == "list" for a in actions),
+            "squad_size": len(squad),
+            "core_players": len(core_ids),
+            "remaining_upgrade_cash": upgrade_plan["remaining_cash"],
+        },
+    }
