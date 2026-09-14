@@ -1,0 +1,51 @@
+name: Test and build Windows ZIP
+
+on:
+  push:
+    branches:
+      - main
+      - "improve/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m py_compile app.py dashboard.py decision_engine.py ligainsider.py einrichten.py benachrichtigungen.py launcher.py
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Validate JSON
+        shell: pwsh
+        run: |
+          Get-Content config.example.json -Raw | ConvertFrom-Json | Out-Null
+          Get-Content strategie.json -Raw | ConvertFrom-Json | Out-Null
+      - name: Build Windows ZIP
+        shell: pwsh
+        run: |
+          $package = @(
+            "app.py", "dashboard.py", "dashboard.html", "decision_engine.py", "ligainsider.py",
+            "einrichten.py", "benachrichtigungen.py", "launcher.py", "requirements.txt",
+            "config.example.json", "strategie.json", "README.txt", "install.ps1",
+            "INSTALLIEREN.bat", "fernzugriff.ps1", "FERNZUGRIFF-EINRICHTEN.bat",
+            "BENACHRICHTIGUNGEN-EINRICHTEN.bat"
+          )
+          foreach ($file in $package) {
+            if (-not (Test-Path $file)) { throw "Paketdatei fehlt: $file" }
+          }
+          Compress-Archive -Path $package -DestinationPath Kickbase-Assistent-Windows11.zip -Force
+          if ((Get-Item Kickbase-Assistent-Windows11.zip).Length -lt 1000) { throw "ZIP ist unerwartet klein" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kickbase-Assistent-Windows11
+          path: Kickbase-Assistent-Windows11.zip
+          if-no-files-found: error
