@@ -419,7 +419,7 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     enriched_by_id = {engine_player_id(p): p for p in market_players + config.get("_enriched_squad", [])}
     squad = [enriched_by_id.get(engine_player_id(p), p) for p in squad]
     near_matchday = (seconds_until_kickoff(live) or 10**12) <= protect_hours * 3600
-    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday)
+    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday, budget)
     result = {
         "enabled": bool(config.get("trading_enabled")),
         "mode": "live" if live_mode else "observe",
@@ -483,7 +483,8 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
                 buy_candidates.append((not is_target, -score, expiry, {"kind": "buy", "player": player, "amount": bid, "reason": f"S11 {score}/5, Preis innerhalb der Grenze"}))
         plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
 
-    selected = plan["actions"][:max_actions]
+    priority = {"accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
+    selected = sorted(plan["actions"], key=lambda item: priority.get(item.get("kind"), 9))[:max_actions]
     result["planned"] = [compact(action) for action in selected]
     if not live_mode:
         result["status"] = f"Testmodus: {len(selected)} geplante Aktion(en)"
