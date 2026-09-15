@@ -57,7 +57,7 @@ class DecisionEngineTests(unittest.TestCase):
     def test_good_offer_wins_before_price_adjustment(self):
         listed = player("sale", 2, 2, mv=10_000_000, owner="me")
         listed.update({"prc": 10_500_000, "offers": [{"id": "offer", "prc": 9_900_000}]})
-        plan = build_trade_plan([listed], self.squad(), {"minimum_offer_percent": 98, "auto_accept_offers": True, "auto_adjust_listings": True}, "me")
+        plan = build_trade_plan([listed], self.squad() + [listed], {"minimum_offer_percent": 98, "auto_accept_offers": True, "auto_adjust_listings": True}, "me")
         action = next(item for item in plan["actions"] if item["player_id"] == "sale")
         self.assertEqual(action["kind"], "accept_offer")
 
@@ -101,8 +101,20 @@ class DecisionEngineTests(unittest.TestCase):
     def test_purchase_price_and_star_profit_protect_offer_floor(self):
         star = player("star", 3, 5, mv=10_000_000, trend=2)
         star["purchasePrice"] = 12_000_000
-        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10}, is_core=True)
+        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10, "sale_price_basis":"purchase"}, is_core=True)
         self.assertGreaterEqual(limits["accept"], 13_200_000)
+
+    def test_multiple_good_offers_cannot_sell_below_eleven(self):
+        squad = best_lineup(self.squad())["players"] + [player("reserve", 3, 3)]
+        market = []
+        for p in squad:
+            market.append({**p, "u": "me", "prc": 1_000_000,
+                           "offers": [{"id": "bidder", "prc": 3_000_000}]})
+        plan = build_trade_plan(market, squad, {"auto_buy": False}, "me")
+        sales = [a for a in plan["actions"] if a["kind"] == "accept_offer"]
+        self.assertEqual(len(sales), 1)
+        remaining = [p for p in squad if p["id"] != sales[0]["player_id"]]
+        self.assertTrue(best_lineup(remaining)["complete"])
 
 if __name__ == "__main__":
     unittest.main()

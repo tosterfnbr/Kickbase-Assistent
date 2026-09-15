@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from flask import Flask, jsonify, request, Response
+from recent_data import timestamp
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -68,6 +69,11 @@ def index():
     return Response(PAGE, mimetype="text/html")
 
 
+@app.get("/planner.js")
+def planner_script():
+    return Response((ROOT/"planner.js").read_text(encoding="utf-8"),mimetype="application/javascript")
+
+
 @app.get("/api/state")
 def state():
     market_file = DATA / "state.json"
@@ -122,6 +128,19 @@ def update_config():
                 clean.append(name)
         config["watchlist_names"] = clean
     numeric_limits = {
+        "maximum_squad_size": (11,30),
+        "maximum_per_club": (1,18),
+        "bench_size": (0,4),
+        "bench_player_budget": (500000,20000000),
+        "combination_size": (1,3),
+        "euros_per_extra_point": (0,200000),
+        "bid_switch_min_gain": (1,100),
+        "trading_take_profit_percent": (1,50),
+        "trading_stop_loss_percent": (1,30),
+        "trading_max_hold_days": (1,30),
+        "slow_seller_days": (1,14),
+        "trial_minimum_cash": (0,100000000),
+        "trial_min_s11": (1,5),
         "minimum_squad_size": (11, 30),
         "max_actions_per_run": (1, 5),
         "portfolio_actions_per_run": (1, 5),
@@ -140,11 +159,52 @@ def update_config():
     for key, (low, high) in numeric_limits.items():
         if key in incoming:
             config[key] = min(high, max(low, int(incoming[key])))
-    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled", "portfolio_mode", "list_all_players", "kickbest_enabled"):
+    if "max_actions_per_run" in incoming:
+        config["portfolio_actions_per_run"]=config["max_actions_per_run"]
+    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled", "portfolio_mode", "list_all_players", "kickbest_enabled", "base_xi_enabled", "auto_withdraw_bids", "continuous_bidding"):
         if key in incoming:
             config[key] = bool(incoming[key])
+    for key in ("advanced_planner","mvp_rule_enabled","winter_reset_enabled"):
+        if key in incoming:
+            if not isinstance(incoming[key],bool):return jsonify({"error":"Ungültiger Schalter"}),400
+            config[key]=incoming[key]
+    if "sale_price_basis" in incoming:
+        if incoming["sale_price_basis"] not in ("market","purchase"):return jsonify({"error":"Ungültige Preisbasis"}),400
+        config["sale_price_basis"]=incoming["sale_price_basis"]
+    if "winter_reset_at" in incoming:
+        date=incoming["winter_reset_at"]
+        if date and timestamp(date) is None:return jsonify({"error":"Ungültiges Reset-Datum"}),400
+        config["winter_reset_at"]=date or None
+    if "mvp_confirmation" in incoming:
+        mvp=incoming["mvp_confirmation"]
+        if not isinstance(mvp,dict):return jsonify({"error":"Ungültige MVP-Angabe"}),400
+        if mvp.get("confirmed") and (not mvp.get("player_id") or not mvp.get("source") or timestamp(mvp.get("ended_at")) is None):
+            return jsonify({"error":"Für den MVP fehlen Spieler, Quelle oder Spieltagsende"}),400
+        day=number_or_none(mvp.get("matchday"))
+        if mvp.get("confirmed") and (day is None or not 1<=day<=40):return jsonify({"error":"Spieltag fehlt"}),400
+        config["mvp_confirmation"]={"player_id":str(mvp.get("player_id", ""))[:100],"matchday":day,
+                                    "source":str(mvp.get("source", ""))[:300],"ended_at":mvp.get("ended_at"),
+                                    "confirmed":mvp.get("confirmed") is True,"completed":mvp.get("completed") is True}
+    if "player_roles" in incoming:
+        roles=incoming["player_roles"]
+        if not isinstance(roles,dict):return jsonify({"error":"Ungültige Spielerrollen"}),400
+        config["player_roles"]={str(k)[:100]:v for k,v in list(roles.items())[:100] if v in ("startelf","trading","bench")}
+    if "additional_fixtures" in incoming:
+        fixtures=incoming["additional_fixtures"]
+        if not isinstance(fixtures,list):return jsonify({"error":"Ungültige Spieltermine"}),400
+        clean=[]
+        for x in fixtures[:100]:
+            if not isinstance(x,dict) or not x.get("team_id") or not x.get("source") or timestamp(x.get("date")) is None:
+                return jsonify({"error":"Spieltermin benötigt Verein, Datum und Quelle"}),400
+            clean.append({"team_id":str(x["team_id"])[:100],"date":x["date"],"source":str(x["source"])[:300]})
+        config["additional_fixtures"]=clean
     CONFIG.write_text(json.dumps(config, indent=2), encoding="utf-8")
     return jsonify({"ok": True})
+
+
+def number_or_none(value):
+    try:return int(value)
+    except (TypeError,ValueError):return None
 
 
 @app.post("/api/trading")

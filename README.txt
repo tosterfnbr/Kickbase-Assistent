@@ -1,135 +1,197 @@
-KICKBASE ASSISTENT – WINDOWS 11
+KICKBASE ASSISTENT – WINDOWS
+Version 2026.09.15-portfolio-2
 ================================
 
-1. ZIP-Datei vollständig entpacken.
-2. INSTALLIEREN.bat doppelt anklicken.
-3. Falls Windows fragt, die Installation von Python erlauben.
-4. KICKBASE-E-Mail und Passwort nur im schwarzen Installationsfenster eingeben.
+INSTALLATION / UPDATE
+1. ZIP vollständig entpacken.
+2. INSTALLIEREN.bat starten.
+3. Bestehende Anmeldung und Einstellungen bleiben erhalten.
+4. Im Menü "Strategie & Deals" die neue Versionsnummer prüfen.
 
-Die Zugangsdaten werden mit dem Windows-Anmeldedatenspeicher geschützt.
-Sie stehen nicht in config.json oder in den Protokolldateien.
+Installation: %LOCALAPPDATA%\KickbaseAssistent
+Dashboard: http://127.0.0.1:8765
+Protokoll: %LOCALAPPDATA%\KickbaseAssistent\kickbase-assistent.log
+Ein Installationstest liest nur Daten und handelt nicht.
+Echte Aktionen setzen den bereits vorhandenen Live-Modus voraus. Der
+Testmodus zeigt Pläne, führt aber keine KICKBASE-Schreibaufrufe aus.
+Zugangsdaten werden lokal über den Windows-Anmeldedatenspeicher verwaltet.
+Für E-Mail einmal BENACHRICHTIGUNGEN-EINRICHTEN.bat starten.
+Für privaten Handy-Zugriff FERNZUGRIFF-EINRICHTEN.bat / Tailscale verwenden.
 
-Installationsordner:
-%LOCALAPPDATA%\KickbaseAssistent
+WANN WERDEN GEBOTE ABGEGEBEN?
+Standard: Marktprüfung alle 5 Minuten, während der gesamten Angebotszeit.
+Der Abstand kommt zur Laufzeit der Datenabfragen hinzu; es ist kein garantierter
+Sekundentakt. PC und Assistent müssen laufen.
+Bei abgeschalteten Dauergeboten gilt das Zeitfenster vor Angebotsende.
+Unveränderte eigene Gebote werden nicht erneut gesendet. Rücknahmen haben
+Vorrang. Erst ein neuer Datenstand nach erfolgreicher Rücknahme gibt Budget
+für andere Käufe frei. Die maximale Zahl an Aktionen gilt weiterhin je Lauf.
+Ein geeigneter Kandidat ist nicht automatisch ein geplanter Kauf: Budget,
+Kombination, Kadergrenzen, Zeitfenster und andere Aktionen können ihn verdrängen.
+Das Dashboard erklärt diesen Unterschied und zeigt den nächsten ungefähren Check.
 
-Ergebnisdateien:
-%LOCALAPPDATA%\KickbaseAssistent\data\markt.csv
-%LOCALAPPDATA%\KickbaseAssistent\data\letzter_markt.json
+DEAL-KRITERIEN
+Startelf:
+- S11 mindestens nach deiner Regel, standardmäßig 3/5.
+- Mindestens 2 Saisoneinsätze, durchschnittlich 45 Minuten und 50 Punkte.
+- Wenn die letzten 3 Spiele vollständig vorliegen: mindestens 45 Minuten im
+  Schnitt und mindestens 50 gewichtete Formpunkte aus bis zu 5 Spielen.
+- Bessere Gesamtelf oder günstige Absicherung einer Reserveposition.
+- Fehlende Minuten bleiben unbekannt; keine Umdeutung als 0 Minuten.
 
-Dashboard auf dem PC:
-http://127.0.0.1:8765
+Trading:
+- Positiver 24-Stunden-Marktwerttrend; KI-Trend mindestens 0.
+- Kein Gamble-Signal; standardmäßig höchstens 3 Mio. Euro je Spieler.
+- Zwei Tage linear fortgeschriebener Trend abzüglich Aufpreis mindestens
+  100.000 Euro. Das ist eine Schätzung, kein Gewinnversprechen.
+- Spieler ohne Einsätze können nur ausdrücklich als Trading infrage kommen.
+- Eingeschränkte Verfügbarkeit, niedrige bekannte S11 oder aktuelle
+  Risikohinweise blockieren auch solche Käufe.
 
-Quellen:
-Im Dashboard links "Quellen" öffnen. Dort sind LigaInsider, KBstats, Base-XI,
-KickbaseNerd, die beiden TikTok-Links, YouTube und Reddit direkt anklickbar.
+Alle Käufe:
+- Nicht unter Marktwert (Ligavorgabe).
+- Individuelle Obergrenze: maximaler Aufpreis, positiver Base-XI Fair Value,
+  geschätzte Mehrpunkte und vergleichbare Alternativen begrenzen den Preis.
+- Alle offenen eigenen Gebote zählen beim Budget mit.
+- Verkaufserlöse sind erst nach tatsächlichem Eingang verfügbar.
+- Verlässlicher Kontostand, Kadergröße und Vereinslimit erforderlich.
+- Der Kontostand stammt aus der exakt passenden Liga in /leagues/selection.
+  Der Wert "b" in lineup/overview ist ausdrücklich NICHT der Kontostand.
 
-Live-Feed und E-Mail:
-Im Dashboard links "Live-Feed" öffnen. Dort stehen neue Marktspieler, jedes
-automatische Gebot/jeder Verkauf sowie neue Startelf- und Verletzungshinweise.
-Auch wegen eines aktuellen Risikohinweises blockierte Gebote werden dort mit
-Grund und Zeitpunkt angezeigt.
-Unter "Spieler beobachten" können auch Namen eingetragen werden, die gerade
-nicht auf dem Markt sind. Sobald einer davon neu erscheint, wird er mit Stern
-angezeigt, per E-Mail gemeldet und als bevorzugtes Kaufziel behandelt.
-Für E-Mail einmal BENACHRICHTIGUNGEN-EINRICHTEN.bat starten. Bei Gmail wird ein
-Google-App-Passwort benötigt. Der Assistent prüft den Markt alle 5 Minuten und
-öffentliche Nachrichten standardmäßig jede Stunde.
-Nachrichten werden nach dem Veröffentlichungsdatum sortiert; die neuesten stehen
-oben. Meldungen älter als 72 Stunden werden automatisch entfernt und können
-keine Kaufentscheidung mehr blockieren. Automatische Gebote werden standardmäßig
-erst in den letzten 10 Minuten vor Marktende abgegeben. Einstellbar sind 5, 10,
-15, 20 oder 30 Minuten.
-Die S11-Chance ist ein Hauptkriterium. Standardmäßig kauft die Automatik nur
-Spieler ab 3/5. Spieler mit hoher S11-Chance werden nicht wegen dieses Werts
-verkauft. Kader-Marktwerte werden aus allen verfügbaren eigenen Kader- und
-Aufstellungsdaten zusammengeführt; fehlende Werte erscheinen nicht als 0 Euro.
-Vor jeder Passworteingabe kannst du auswählen, ob die Eingabe sichtbar oder
-verborgen erfolgen soll. Sichtbar nur verwenden, wenn niemand mitlesen kann.
+KAUFKOMBINATIONEN UND BANK
+Bis zu 24 Kandidaten und bis zu 3 Käufe je Kombination werden verglichen.
+Innerhalb dieser begrenzten Auswahl erfolgt eine vollständige Kombinationensuche.
+Es wird kein weltweites Optimum über alle Spieler behauptet.
+Reihenfolge: besetzte gültige Positionen, fehlende Pflichtpositionen, geschätzte
+Punkte und günstige Reservepositionen; bei Gleichstand niedrigerer Kaufpreis.
+So können zwei günstige Verbesserungen einem teuren Star vorgezogen werden.
+Alternative Kombinationen werden mit Kosten und erwarteten Punkten angezeigt.
+Die Ziel-Elf ist ein Kaufvorschlag, keine bereits ausgeführte Aufstellung.
 
-X-Hinweise:
-Die Einrichtung fragt optional nach einem eigenen X-API-Bearer-Token. Ohne
-Token bleibt X aus. Öffentliche Meldungen werden nur als unbestätigte Hinweise
-behandelt: Sie blockieren für 36 Stunden automatische Käufe des betroffenen
-Spielers, lösen aber niemals allein einen automatischen Verkauf aus.
+Bank: standardmäßig 2 verschiedene Reservepositionen, höchstens 4 Mio. Euro
+je Bankspieler. Kader- und Vereinsgrenzen werden berücksichtigt.
+Trading-Kapital gibt es erst bei vollständiger Elf. Höchstens 20% des Geldes
+nach Reserve, bei fehlender Bank 10%, außerdem höchstens 5 Mio. Euro.
+Vorhandene Trading-Spieler und offene Trading-Gebote zählen gemeinsam dazu.
+Anhand besserer bezahlbarer Kombinationen können geeignete alte Gebote
+zurückgezogen werden; standardmäßig erst ab 10 geschätzten Mehrpunkten oder
+bei besserer Besetzung fehlender Pflichtpositionen.
 
-Wichtig zu Quellen:
-Frühere Chat-Nachrichten werden nicht automatisch auf den PC übertragen.
-Bekannte Quellen und Regeln stehen in strategie.json; der Nachrichtenmonitor
-nutzt öffentlich auffindbare Meldungen und verlinkt immer die Originalquelle.
+PROGNOSEN UND QUELLEN
+KICKBASE performance: tatsächliche Spieltagspunkte p und Minuten mp, maximal
+die letzten 5 Spiele der laufenden Saison. ap/tp sind keine Spieltagspunkte.
+Zukünftige Spiele und noch junge laufende Partien werden nicht als fertige
+Leistung übernommen. Historische Startelfeinsätze stammen separat von Base-XI.
+Bis zu 4 Performance-Abfragen pro Lauf; mindestens 1 Stunde Abstand je Spieler.
+Nach 6 Stunden gelten nicht erneuerte Daten als veraltet.
+Die Anzeige kann sich beim ersten Start deshalb über mehrere Läufe ergänzen.
 
-Über "Daten für ChatGPT exportieren" entsteht eine aktuelle JSON-Datei ohne
-Passwort oder Zugriffstoken. Diese Datei kann sicher im Chat hochgeladen werden.
+Punkteprognose: 70% gewichtete aktuelle Form und 30% Saisonmittel, sofern beide
+vorliegen; sonst die vorhandene Quelle. S11 und bekannte Belastung fließen ein.
+Gegnerfaktor aus dem Punkteprofil der elf punktbesten Vereinsspieler laut Base-XI.
+Dies ist keine Tabellenposition. Unbekannte Gegner erhalten keinen Bonus/Malus.
+Die nächsten bis zu 3 Gegner werden angezeigt.
+Rotation: Warnung, wenn mindestens 2 der letzten 3 Spiele unter 60 Minuten
+liegen. Das beweist keine taktische Rotation und ist entsprechend bezeichnet.
+Bekannte Pflichtspiele mit höchstens 4 Tagen Abstand lösen eine Belastungswarnung aus.
+Internationale und Pokaltermine werden NICHT automatisch vollständig geladen.
+Bestätigte zusätzliche Termine können mit Verein, Datum und Quelle im Dashboard
+hinterlegt werden. Ohne diese Einträge bleibt die zusätzliche Belastung unbekannt.
 
-Privater Zugriff vom Handy:
-Nach erfolgreicher Hauptinstallation FERNZUGRIFF-EINRICHTEN.bat starten.
-Tailscale anschließend auch auf dem Handy installieren und dasselbe Konto nutzen.
+Base-XI: öffentlicher Datenabruf ohne Weitergabe deiner KICKBASE-Anmeldung.
+Basisdaten alle 6 Stunden; bis zu 2 ergänzende Formabfragen je Lauf.
+LigaInsider-Prognosen bleiben quellenbewusst von KICKBASE getrennt.
+Bei Ausfällen wird kein Wert erfunden. Ein bloßer Base-XI-Ausfall führt nicht
+zur pauschalen Rücknahme aller Gebote und blockiert neue Scouting-Käufe.
+Datenalter, Formwerte, Gegnerbasis, Kaufzweck und Preisobergrenze sind sichtbar.
 
-Protokoll:
-%LOCALAPPDATA%\KickbaseAssistent\kickbase-assistent.log
+VERKAUF UND MEHR GEWINNPOTENZIAL
+Standardmäßig orientieren sich Verkaufsentscheidungen am aktuellen Markt,
+nicht an einem möglicherweise zu hohen alten Einkaufspreis. Ein sinnvoller
+Verkauf darf daher einen Verlust realisieren. Optional kann wieder die
+Einkaufspreis-Basis gewählt werden.
+Echte Gewinne/Verluste werden IMMER gegenüber dem tatsächlichen Kaufpreis gerechnet.
 
-Autostart deaktivieren:
-Windows-Taste + R drücken, shell:startup eingeben und dort
-"Kickbase-Assistent.cmd" entfernen.
+Trading-Kursziel standardmäßig +8%, Rückgangsgrenze 5%, Haltedauer 7 Tage.
+Im Marktmodus ist der festgehaltene Marktwert bei erster Erfassung die
+Bezugsgröße für diese Kursbewegung; im Einstandsmodus ist es der Kaufpreis.
+Ein +8%-Kursziel ist daher nicht automatisch +8% Gewinn auf deinen Einkaufspreis.
+Bei Ausstieg orientiert sich die Angebotsuntergrenze im Marktmodus am aktuellen
+Marktwert. Ein Kursrückgang, negative Trends oder eine abgelaufene bekannte
+Haltedauer können einen Verkauf auslösen. Keine Garantie einer Ausführung zum
+Ziel- oder Grenzpreis. Höhere Ziele können längere Wartezeiten bedeuten.
+Fehlt der tatsächliche Kaufzeitpunkt, wird keine Haltedauer erfunden.
+Bestehende Spieler können ausdrücklich als Startelf, Trading oder Bank markiert werden.
+Neue Rollen gelten beim nächsten Sync.
 
-WICHTIG:
-Die verwendete KICKBASE-Schnittstelle ist nicht offiziell dokumentiert. Diese
-Version kann nach einer bewussten Freigabe im Dashboard echte Gebote,
-Preisanpassungen, Angebotsannahmen und Sofortverkäufe ausführen. Vorher bleibt
-sie im Testmodus. Ein Sofortverkauf geht direkt an KICKBASE und kann nicht
-rückgängig gemacht werden. Deshalb sind Startelf, Mindestkader, Mindestreserve,
-Spieltagsnähe und die maximale Zahl von Aktionen automatisch begrenzt.
+Länger gelistete Spieler: nach standardmäßig 3 Tagen wird der Angebotspreis
+schrittweise neu bewertet, innerhalb der gültigen Preisgrenzen.
+Wichtige Spieler dürfen erst verkauft werden, wenn Mindestkader und eine
+vollständige gültige Elf aus bereits vorhandenen Spielern erhalten bleiben.
+Mehrere Verkäufe werden gemeinsam geprüft; offene Ersatzgebote zählen nicht.
+Geschützte Spieler werden nicht automatisch verkauft oder umgepreist.
+Ohne bekanntes aktuelles Verkaufsangebot wird kein Sofortverkaufspreis erfunden.
+Bei unbekanntem Anpfiff bleiben geschützte Verkäufe vorsorglich gesperrt.
 
-VERBESSERTE ENTSCHEIDUNGSLOGIK
-==============================
-S11 wird quellenbewusst ausgewertet: LigaInsider-Vorschau zuerst, KICKBASE als
-Fallback. Ein fehlender Wert wird als "unbekannt" angezeigt und blockiert
-automatische Käufe; er wird niemals als 0/5 oder als Verkaufsgrund behandelt.
+ERKLÄRUNGEN, ERGEBNISSE UND PROBELAUF
+Zu aufgezeichneten Käufen: Zweck, Entscheidungsgrund, damalige Preisgrenze,
+Kaufpreis soweit verifiziert, Verkaufsziel und Haltedauer.
+Ein erfolgreicher Gebotsaufruf allein ist kein nachgewiesener Kauf.
+Historische Käufe vor Beginn der Aufzeichnung haben gegebenenfalls keinen
+bekannten Entscheidungsgrund; dieser wird nicht nachträglich erfunden.
+Realisierter Gewinn wird erst nach bestätigter Angebotsannahme UND späterer
+Kaderbestätigung erfasst. Ein verschwundener Spieler allein beweist keinen
+Erlös. Unbekannte Ergebnisse bleiben gesondert. Historische manuelle Verkäufe
+ohne Preisnachweis werden nicht rückwirkend in eine Gewinnsumme umgedeutet.
+Punkte werden als Zuwachs seit erster Beobachtung gezeigt, nicht als erfundener
+Gesamtertrag seit einem unbekannten früheren Kaufdatum.
+Änderungen an Marktwert, S11, Status und Minuten werden hervorgehoben.
 
-Die beste Elf wird automatisch aus mehreren gültigen Formationen ermittelt.
-S11-Sicherheit zählt am stärksten, danach Punkte, Marktwerttrend und Marktwert.
-Die ermittelte Elf ist bei der Verkaufsstrategie geschützt.
+Probelauf: separate Reserve und S11-Grenze testen, ohne echte Aufträge.
+Hypothetische Warenkörbe werden aufgezeichnet und bei verfügbaren späteren
+Kursen neu bewertet. Marktwertänderungen sind keine realisierten Gewinne.
+Zuschläge, tatsächliche Verkäufe und eine rückwirkende Erfolgsquote werden
+nicht simuliert. Probelauf-Ergebnisse ändern keine Handelsregeln automatisch.
 
-Im Testmodus berechnet der Assistent exakt denselben Handelsplan wie im
-Live-Modus, führt jedoch keinen schreibenden KICKBASE-Aufruf aus. Unter
-"planned" im Export bzw. Live-Feed sind die vorgesehenen Aktionen sichtbar.
+SPIELTAG, MVP UND WINTERRESET
+Prüfung: vollständiger Kader, gültige vorgeschlagene Elf, tatsächliche
+Aufstellungs-IDs, Kontostand, S11-Risiken und nächster Anpfiff.
+Die App setzt die Aufstellung nicht automatisch per KICKBASE-Schreibaufruf.
 
-Beim Verkauf gilt die Reihenfolge:
-1. Bereits gutes Angebot oberhalb der Verkaufsgrenze annehmen.
-2. Sonst den Angebotspreis dynamisch aus Marktwert, Trend und S11 bestimmen.
-3. Überschussspieler auf den Markt stellen.
-4. Nur bei fallendem Marktwert UND bestätigter niedriger S11-Chance sofort an
-   KICKBASE verkaufen. Unbekannte S11-Werte und die beste Elf sind geschützt.
+MVP-Regel: endgültigen MVP, Spieltag, Quelle und tatsächliches Spieltagsende
+im Dashboard bestätigen. Eine unvollständige Punkteliste bestimmt keinen MVP.
+Ein bestätigter eigener MVP wird als Pflichtverkauf an KICKBASE angezeigt;
+Managerangebote werden dafür nicht automatisch angenommen. Den Verkauf an
+KICKBASE in der KICKBASE-App durchführen und danach als erledigt bestätigen.
+Der MVP wird nicht ohne verlässliche Quelle automatisch erraten.
 
-Die LigaInsider-Seitenstruktur kann sich ändern. Bei einem Abruf- oder
-Zuordnungsfehler bleibt die Quelle "unbekannt"; es wird kein Wert erfunden.
+Winterreset: vereinbarten Termin selbst einstellen; kein Datum wird erfunden.
+Der Termin verkürzt bekannte Trading-Haltefristen. Neue Trading-Käufe bleiben
+aus, wenn der Reset vor dem geplanten Halteende liegt. Bei vollständiger Elf
+werden kurz vor dem Reset Käufe ohne belegten Einsatz davor blockiert.
+Nach dem Termin warten neue Käufe auf die Aktualisierung des Datums.
+Der Assistent verkauft nicht pauschal den ganzen Kader und setzt keine Liga zurück.
 
+STUNDENMAIL
+Höchstens eine automatische Sammelmail pro Stunde, auch nach Neustarts.
+Bestätigte Aktionen, wichtige Probleme, Kontostand, offene Gebote, freies
+Budget und erfasster realisierter Gewinn/Verlust werden zusammengefasst.
+Unveränderte Fehlermeldungen/Blockaden werden nicht alle 5 Minuten neu verschickt.
+Ohne neue Ereignisse keine leere Mail. Manuelle Testmails sind separat.
+Fehlgeschlagene Zustellung wird frühestens nach einer Stunde erneut versucht.
 
-PORTFOLIO- UND GEWINNMODUS
-==========================
-Im Portfolio-Modus darf jeder nicht manuell geschützte Spieler auf den
-Transfermarkt gestellt werden. Das gilt auch für Spieler der aktuell besten
-Elf. Für diese Kernspieler setzt der Assistent bewusst höhere Ziel- und
-Gewinngrenzen. Ein gutes Angebot für einen Kernspieler wird nur angenommen,
-wenn Positionsreserve oder ein bezahlbares Startelf-Upgrade vorhanden ist.
-Innerhalb des Spieltag-Schutzfensters werden neue Verkäufe blockiert.
+TECHNISCHE PRÜFUNG UND GRENZEN
+Unit-Tests prüfen Datenzuordnung, Nullwerte, Minuten, Kaufkombinationen,
+Budget, Club-/Kadergrenzen, Gebotswechsel, Verkaufsschutz, Ergebnisnachweis,
+Probeläufe, Regeln und Installations-Sicherheit.
+Windows-CI prüft Python, JavaScript, JSON und die Importe aus dem erzeugten ZIP.
+Ein DOM-Funktionstest prüft das befüllte Strategie-Dashboard.
+Echte KICKBASE-Transaktionen und echte SMTP-Zustellungen wurden hier nicht
+gegen deinen Account getestet. Der Windows-Anmeldedatenspeicher ist lokal.
+KICKBASE-Schnittstellen sind inoffiziell dokumentiert und können sich ändern.
 
-Für Käufe bewertet der Assistent gemeinsam:
-- bestätigte S11-Chance und Quelle,
-- durchschnittliche und gesamte Punkte, soweit geliefert,
-- Punkte pro Million Marktwert,
-- Marktwerttrend,
-- Kaufpreis, verfügbares Budget und Mindestreserve,
-- Qualitätsgewinn gegenüber dem derzeit schwächsten Startelfspieler.
+Implementierte Datenschemata:
+https://github.com/leon-schaefer/kickflow/tree/main/src/api/kickbase
+https://www.base-xi.de/players
 
-Kickbest (https://kickbest.app/) wird als optionale öffentliche Statistikquelle
-abgerufen. Nur eindeutig strukturierte und eindeutig zuordenbare Spielerdaten
-werden übernommen. Sind keine öffentlich auslesbaren Daten verfügbar, nutzt
-der Assistent die vorhandenen KICKBASE-Statistiken und zeigt Kickbest als nicht
-verfügbar an.
-
-VERKAUFSBENACHRICHTIGUNGEN
-=========================
-Nach einem tatsächlich ausgeführten Verkauf enthält die Benachrichtigung
-Spieler, Verkaufspreis, berechenbaren Gewinn und den Entscheidungsgrund.
-Dafür einmal BENACHRICHTIGUNGEN-EINRICHTEN.bat ausführen. Im Testmodus stehen
-alle geplanten Aktionen zusätzlich sichtbar im Dashboard und im JSON-Export.
+Autostart ausschalten: Windows + R, shell:startup, Kickbase-Assistent.cmd entfernen.
