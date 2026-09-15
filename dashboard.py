@@ -140,7 +140,7 @@ def update_config():
     for key, (low, high) in numeric_limits.items():
         if key in incoming:
             config[key] = min(high, max(low, int(incoming[key])))
-    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled", "portfolio_mode", "list_all_players", "kickbest_enabled"):
+    for key in ("auto_buy", "auto_instant_sell", "auto_accept_offers", "auto_adjust_listings", "ligainsider_enabled", "portfolio_mode", "list_all_players", "kickbest_enabled", "base_xi_enabled", "auto_withdraw_bids", "continuous_bidding"):
         if key in incoming:
             config[key] = bool(incoming[key])
     CONFIG.write_text(json.dumps(config, indent=2), encoding="utf-8")
