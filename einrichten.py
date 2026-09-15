@@ -20,6 +20,9 @@ keyring.set_password(APP, "password", password)
 
 config = {
     "league_name": league,
+    "base_xi_enabled": True,
+    "auto_withdraw_bids": True,
+    "email_digest_minutes": 60,
     "poll_minutes": 5,
     "mode": "observe",
     "minimum_cash": 1000000,

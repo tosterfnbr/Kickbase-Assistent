@@ -42,6 +42,9 @@ Copy-Item (Join-Path $PSScriptRoot "app.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "decision_engine.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "ligainsider.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "stats_provider.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "base_xi.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "bid_policy.py") $InstallDir -Force
+Copy-Item (Join-Path $PSScriptRoot "notifications.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "requirements.txt") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "einrichten.py") $InstallDir -Force
 Copy-Item (Join-Path $PSScriptRoot "dashboard.py") $InstallDir -Force

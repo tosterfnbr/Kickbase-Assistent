@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import logging
+import math
 import smtplib
 import ssl
 import time
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 from xml.etree import ElementTree
 
 import keyring
@@ -18,6 +19,9 @@ import requests
 from decision_engine import build_trade_plan, best_lineup, enrich_s11, pick as engine_pick, player_id as engine_player_id, player_name as engine_player_name, s11_score
 from ligainsider import fetch_ligainsider
 from stats_provider import enrich_performance, fetch_kickbest
+from base_xi import fetch_base_xi, fetch_base_xi_forms, enrich_base_xi
+from bid_policy import plan_bids, own_offer, login_user_id, identity
+from notifications import hourly_digest
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -65,6 +69,8 @@ class KickbaseClient:
             body = response.json()
         except ValueError:
             body = {}
+        if isinstance(body, dict) and (body.get("errMsg") or body.get("error") or body.get("success") is False):
+            raise ValueError("KICKBASE hat den Auftrag abgelehnt: " + str(body.get("errMsg") or body.get("error") or "success=false")[:160])
         return {"status": response.status_code, "body": body}
 
     def get_optional(self, *paths):
@@ -450,8 +456,6 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     live_mode = bool(config.get("trading_enabled")) and config.get("mode") == "live"
     action_setting = config.get("portfolio_actions_per_run", 3) if config.get("portfolio_mode", True) else config.get("max_actions_per_run", 1)
     max_actions = max(1, min(5, int(action_setting)))
-    min_cash = max(0, int(config.get("minimum_cash", 1_000_000)))
-    max_overpay = max(0, min(30, float(config.get("maximum_overpay_percent", 8))))
     protect_hours = max(0, int(config.get("matchday_protection_hours", 48)))
     budget = find_number(extra.get("me", {}), "budget", "b", "cash", "bal")
     squad = normalized_squad(extra, market_players, user_id)
@@ -459,7 +463,8 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
     enriched_by_id = {engine_player_id(p): p for p in market_players + config.get("_enriched_squad", [])}
     squad = [enriched_by_id.get(engine_player_id(p), p) for p in squad]
     near_matchday = (seconds_until_kickoff(live) or 10**12) <= protect_hours * 3600
-    plan = build_trade_plan(market_players, squad, config, user_id, near_matchday, budget)
+    # All purchase paths now share the same Base-XI and withdrawal policy.
+    plan = build_trade_plan(market_players, squad, {**config, "auto_buy": False}, user_id, near_matchday, budget)
     result = {
         "enabled": bool(config.get("trading_enabled")),
         "mode": "live" if live_mode else "observe",
@@ -497,69 +502,37 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
             "amount": amount,
             "purchase_price": paid or None,
             "profit": profit,
+            "purpose": action.get("purpose"),
         }
 
-    # Add late-buy proposals using corrected S11 semantics. Unknown never means 0/5.
-    own_id = str(user_id or config.get("user_id", ""))
-    targets = {str(item) for item in config.get("targets", [])}
-    target_names = {str(item).casefold().strip() for item in config.get("watchlist_names", []) if str(item).strip()}
-    min_s11 = max(1, min(5, int(config.get("minimum_starting_probability", 3))))
-    if config.get("auto_buy", True) and isinstance(budget, (int, float)):
-        buy_candidates = []
-        existing_buy_ids = {item.get("player_id") for item in plan["actions"] if item.get("kind") == "buy"}
-        for player in market_players:
-            pid = engine_player_id(player)
-            if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
-                continue
-            if pid in existing_buy_ids:
-                continue
-            mv = int(pick(player, "marketValue", "mv", default=0) or 0)
-            price = int(pick(player, "price", "prc", "p", default=mv) or mv)
-            expiry = int(pick(player, "expiry", "exs", default=10**9) or 10**9)
-            score = s11_score(player)
-            name = engine_player_name(player).casefold()
-            is_target = pid in targets or name in target_names
-            if score is None:
-                result["blocked"].append({"player_id": pid, "player": engine_player_name(player), "reason": "Kauf blockiert: S11-Chance unbekannt"})
-                continue
-            if mv <= 0 or score < min_s11 or (not is_target and int(pick(player, "marketValueTrend", "mvt", default=0) or 0) != 2):
-                continue
-            if not config.get("continuous_bidding", True) and expiry > int(config.get("bid_window_minutes", 10)) * 60:
-                continue
-            if name in risky_names or (name and name.split()[-1] in risky_names):
-                result["blocked"].append({"player_id": pid, "player": engine_player_name(player), "reason": "Kauf wegen aktuellem Risiko-Hinweis blockiert"})
-                continue
-            bid = max(mv, price)
-            if bid <= round(mv * (1 + max_overpay / 100)) and budget - bid >= min_cash:
-                buy_candidates.append((not is_target, -score, expiry, {"kind": "buy", "player": player, "amount": bid, "reason": f"S11 {score}/5, Preis innerhalb der Grenze"}))
-        plan["actions"].extend(item[-1] for item in sorted(buy_candidates))
-
-    priority = {"accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
+    priority = {"withdraw_bid": -1, "accept_offer": 0, "buy": 1, "instant_sell": 2, "list": 3, "adjust_price": 4}
+    DATA.mkdir(exist_ok=True)
     bid_state_path = DATA / "submitted_bids.json"
     bid_state = load_json(bid_state_path, {})
     bid_state = bid_state if isinstance(bid_state, dict) else {}
     market_ids = {engine_player_id(player) for player in market_players}
     bid_state = {pid: item for pid, item in bid_state.items() if pid in market_ids}
-    bid_refresh = max(5, int(config.get("bid_refresh_minutes", 30))) * 60
+    bids = plan_bids(market_players, squad, config, user_id, budget, bid_state, risky_names)
+    plan["actions"].extend(bids["actions"])
+    result["blocked"].extend(bids["blocked"])
+    result["scouting"] = bids["ratings"]
     validated = []
-    priced_actions = {"accept_offer", "buy", "list", "adjust_price"}
+    priced_actions = {"accept_offer", "buy", "list", "adjust_price", "instant_sell"}
     for action in plan["actions"]:
         kind = action.get("kind")
         player = action.get("player", {})
         pid = engine_player_id(player)
         amount = action.get("amount")
         invalid_amount = kind in priced_actions and (
-            isinstance(amount, bool) or not isinstance(amount, (int, float)) or amount <= 0
+            isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0
         )
-        offer_id = str(pick(action.get("offer", {}), "offerId", "uoid", "id", "i"))
-        previous_bid = bid_state.get(pid, {}) if kind == "buy" else {}
-        same_recent_bid = (
-            kind == "buy"
-            and previous_bid.get("amount") == amount
-            and time.time() - float(previous_bid.get("time", 0) or 0) < bid_refresh
-        )
-        if same_recent_bid:
-            continue
+        offer = action.get("offer", {})
+        offer_id = identity(offer.get("offerId") or offer.get("uoid") or offer.get("id") or offer.get("i") or offer.get("u"))
+        if kind == "withdraw_bid":
+            verified = own_offer(player, user_id)
+            if not verified or verified["offer_id"] != action.get("offer_id"):
+                result["blocked"].append({"player": engine_player_name(player), "reason": "Gebot gehört nicht nachweisbar dir"})
+                continue
         if kind not in priority or not pid or invalid_amount or (kind == "accept_offer" and not offer_id):
             result["blocked"].append({
                 "player_id": pid,
@@ -578,20 +551,27 @@ def run_trading(client, league_id, market_players, extra, config, live, user_id=
         player = action.get("player", {})
         pid = engine_player_id(player)
         try:
-            if action["kind"] == "accept_offer":
-                offer_id = str(pick(action["offer"], "offerId", "uoid", "id", "i"))
-                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers/{offer_id}/accept", {})
-            elif action["kind"] == "adjust_price":
-                client.write("PUT", f"/v4/leagues/{league_id}/market/{pid}", {"price": action["amount"]})
+            if action["kind"] == "withdraw_bid":
+                offer_id = quote(action["offer_id"], safe="")
+                client.write("DELETE", f"/v4/leagues/{quote(str(league_id), safe='')}/market/{quote(pid, safe='')}/offers/{offer_id}")
+            elif action["kind"] == "accept_offer":
+                offer = action["offer"]
+                offer_id = identity(offer.get("offerId") or offer.get("uoid") or offer.get("id") or offer.get("i") or offer.get("u"))
+                client.write("DELETE", f"/v4/leagues/{league_id}/market/{pid}/offers/{quote(offer_id, safe='')}/accept")
             elif action["kind"] == "instant_sell":
-                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/sell", {})
-            elif action["kind"] == "list":
-                client.write("POST", f"/v4/leagues/{league_id}/market/{pid}", {"price": action["amount"]})
+                client.write("DELETE", f"/v4/leagues/{league_id}/market/{pid}/sell")
+            elif action["kind"] in ("list", "adjust_price"):
+                # Observed compact fields plus documented aliases. Both operations
+                # set a transfer price; neither accepts an offer or sells a player.
+                client.write("POST", f"/v4/leagues/{league_id}/market/", {
+                    "pi": pid, "prc": action["amount"], "playerId": pid, "price": action["amount"]})
             elif action["kind"] == "buy":
                 client.write("POST", f"/v4/leagues/{league_id}/market/{pid}/offers", {"price": action["amount"]})
             entry = {**compact(action), "ok": True}
             if action["kind"] == "buy":
-                bid_state[pid] = {"amount": action["amount"], "time": time.time()}
+                bid_state[pid] = {"amount": action["amount"], "time": time.time(), "purpose": action.get("purpose")}
+            elif action["kind"] == "withdraw_bid":
+                bid_state.pop(pid, None)
         except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
             entry = {**compact(action), "ok": False, "error": str(exc)[:240]}
         result["actions"].append(entry)
@@ -657,7 +637,7 @@ def run_once(safe_check=False):
     history = update_value_history(stamp, squad_value)
     live = bundesliga_live()
     new_players = detect_new_market_players(players)
-    user_id = pick(login, "id", "i", "userId", "ui", "u", default="")
+    user_id = login_user_id(login)
     squad_players = normalized_squad(extra, players, user_id)
     squad_players = hydrate_squad_details(client, league_id, squad_players, config)
     ligainsider = fetch_ligainsider(squad_players + players, config)
@@ -666,39 +646,38 @@ def run_once(safe_check=False):
     kickbest = fetch_kickbest(squad_players + players, config)
     players = enrich_performance(players, kickbest)
     squad_players = enrich_performance(squad_players, kickbest)
+    base_xi = fetch_base_xi(DATA, config)
+    base_xi = fetch_base_xi_forms(base_xi, players + squad_players, DATA, config)
+    players = enrich_base_xi(players, base_xi)
+    squad_players = enrich_base_xi(squad_players, base_xi)
     config["_enriched_squad"] = squad_players
     recommended_lineup = best_lineup(squad_players)
     watched_players = [{"name": name} for name in config.get("watchlist_names", []) if str(name).strip()]
     news, new_news = news_monitor(squad_players + players + watched_players, config)
     trading = run_trading(client, league_id, players, extra, config, live, user_id, news.get("items", []))
-    notification_lines = []
-    if new_players:
-        watched_names = {str(name).casefold().strip() for name in config.get("watchlist_names", [])}
-        notification_lines.extend(["NEU AUF DEM TRANSFERMARKT:"] + [
-            f"• {'⭐ BEOBACHTET: ' if display_name(player).casefold() in watched_names else ''}{display_name(player)} – Marktwert {int(pick(player, 'marketValue', 'mv', default=0) or 0):,} €"
-            for player in new_players
-        ])
-    if trading.get("actions"):
-        notification_lines.extend(["", "AUTOMATISCHE HANDELSAKTIONEN:"] + [
-            f"• {item['action']}: {item['player']} – {int(item.get('amount') or 0):,} €"
-            + (f" · Gewinn {int(item['profit']):,} €" if item.get("profit") is not None else "")
-            + f" ({item['reason']})"
-            for item in trading["actions"]
-        ])
-    if trading.get("blocked"):
-        notification_lines.extend(["", "AUS SICHERHEIT BLOCKIERTE GEBOTE:"] + [
-            f"• {item['player']}: {item['reason']}"
-            for item in trading["blocked"]
-        ])
-    if new_news:
-        notification_lines.extend(["", "NEUE STARTELF-/RISIKO-HINWEISE (BITTE QUELLE PRÜFEN):"] + [
-            f"• {item['player']}: {item['title']}\n  {item['url']}"
-            for item in new_news[:10]
-        ])
-    notification = (
-        send_email(config, "KICKBASE Assistent – neue Ereignisse", notification_lines)
-        if notification_lines else {"sent": False, "reason": "Keine neuen Ereignisse"}
-    )
+    events = []
+    for p in new_players:
+        events.append({"id": "market:" + engine_player_id(p) + ":" + stamp,
+                       "text": "Neu auf dem Markt: " + display_name(p)})
+    labels = {"withdraw_bid": "Gebot zurückgezogen", "buy": "Kaufgebot abgegeben",
+              "list": "Auf den Markt gestellt", "adjust_price": "Verkaufspreis angepasst",
+              "accept_offer": "Angebot angenommen", "instant_sell": "Sofortverkauf"}
+    for item in trading.get("actions", []):
+        status = labels.get(item["action"], item["action"]) if item.get("ok") else "Aktion fehlgeschlagen"
+        text = f"{status}: {item['player']} – {int(item.get('amount') or 0):,} € · {item['reason']}"
+        if item.get("profit") is not None and item.get("ok"):
+            text += f" · Gewinn/Verlust {int(item['profit']):,} €"
+        if item.get("error"):
+            text += " · " + item["error"]
+        events.append({"id": "trade:" + item["time"] + item["action"] + item["player_id"], "text": text})
+    for item in trading.get("blocked", []):
+        text = f"Blockiert: {item.get('player', 'Handel')} · {item['reason']}"
+        events.append({"id": text, "text": text})
+    for item in new_news:
+        events.append({"id": "news:" + item["id"],
+                       "text": f"Risiko-Hinweis: {item['player']} · {item['title']}\n{item['url']}"})
+    notification = ({"sent": False, "reason": "Installationstest ohne E-Mail"} if safe_check else
+                    hourly_digest(DATA, config, events, send_email))
     snapshot = {"updated_at": stamp, "league": config["league_name"], "market": market_raw}
     (DATA / "letzter_markt.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
     state = {
@@ -711,6 +690,8 @@ def run_once(safe_check=False):
         "best_lineup": recommended_lineup,
         "ligainsider": ligainsider,
         "kickbest": kickbest,
+        "base_xi": {key: value for key, value in base_xi.items() if key != "players"},
+        "version": "2026.09.15-base-xi",
         "sections": extra,
         "live": live,
         "value_history": history,

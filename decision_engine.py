@@ -21,13 +21,20 @@ def pick(obj, *keys, default=None):
 
 
 def player_id(player):
-    return str(pick(player, "id", "i", "playerId", "pi", default=""))
+    return str(next((player[k] for k in ("id", "i", "playerId", "pi") if player.get(k) not in (None, "", 0)), ""))
+
+
+def player_owner_id(player):
+    value = pick(player, "userId", "ui", "u", default="")
+    if isinstance(value, dict):
+        value = value.get("i") or value.get("id")
+    return str(value or "")
 
 
 def player_name(player):
     return " ".join(str(v) for v in (
         pick(player, "firstName", "fn", default=""),
-        pick(player, "lastName", "n", "name", default=""),
+        pick(player, "lastName", "n", "ln", "name", default=""),
     ) if v).strip()
 
 
@@ -178,7 +185,9 @@ def affordable_upgrades(squad, market_players, budget, config, user_id=""):
     proposals = []
     candidates = []
     for candidate in market_players:
-        if own_id and str(pick(candidate, "userId", "ui", "u", default="")) == own_id:
+        if not config.get("auto_buy", True):
+            break
+        if own_id and player_owner_id(candidate) == own_id:
             continue
         score = s11_score(candidate)
         price = int(_number(candidate, "price", "prc", "marketValue", "mv") or 0)
@@ -275,29 +284,30 @@ def build_trade_plan(market_players, squad, config, user_id="", near_matchday=Fa
     own_id = str(user_id or config.get("user_id", ""))
     lineup = best_lineup(squad)
     core_ids = {player_id(p) for p in lineup["players"]}
-    position_counts = Counter(_position(p) for p in squad)
+    sale_pool = list(squad)
     upgrade_plan = affordable_upgrades(squad, market_players, budget, config, user_id)
-    replacement_for = {item["replace_player_id"]: item for item in upgrade_plan["buys"]}
     actions, blocked, own_listings = [], [], {}
 
     for player in market_players:
-        if own_id and str(pick(player, "userId", "ui", "u", default="")) == own_id:
+        if own_id and player_owner_id(player) == own_id:
             pid = player_id(player)
             own_listings[pid] = player
             is_core = pid in core_ids
             limits = price_limits(player, config, is_core=is_core)
             offers = pick(player, "offers", "ofs", default=[]) or []
-            priced = [(int(_number(o, "price", "prc", "p") or 0), o) for o in offers]
+            priced = [(int(_number(o, "price", "prc", "p", "uop") or 0), o) for o in offers if isinstance(o, dict)]
             best_offer = max(priced, default=(0, None), key=lambda item: item[0])
-            has_depth = position_counts[_position(player)] > POSITION_MINIMUM.get(_position(player), 1)
-            replacement_ready = pid in replacement_for
-            sale_safe = not is_core or has_depth or replacement_ready
+            remaining = [p for p in sale_pool if player_id(p) != pid]
+            sale_safe = (len(remaining) < len(sale_pool)
+                         and len(remaining) >= int(config.get("minimum_squad_size", 11))
+                         and best_lineup(remaining)["complete"])
             if config.get("auto_accept_offers", True) and best_offer[1] and best_offer[0] >= limits["accept"] and sale_safe and not near_matchday:
                 actions.append({
                     "kind": "accept_offer", "player": player, "player_id": pid,
                     "amount": best_offer[0], "offer": best_offer[1],
                     "reason": "Gewinnziel erreicht" + (" und Ersatz/Positionsreserve vorhanden" if is_core else ""),
                 })
+                sale_pool = remaining
             elif best_offer[1] and best_offer[0] >= limits["accept"] and not sale_safe:
                 blocked.append({"player_id": pid, "player": player_name(player), "reason": "Gutes Angebot blockiert: noch kein sicherer Ersatz"})
             else:
@@ -311,6 +321,11 @@ def build_trade_plan(market_players, squad, config, user_id="", near_matchday=Fa
         for item in selling_candidates(squad, config, config.get("protected_players", [])):
             if item["player_id"] not in own_listings:
                 action = {"kind": item["method"], **item}
+                if action["kind"] == "instant_sell":
+                    # No current system offer is present on this unlisted player.
+                    # First request offers by listing; never invent a sale price.
+                    action["kind"] = "list"
+                    action["reason"] += "; zuerst listen, aktuelles Verkaufsangebot fehlt"
                 if action["kind"] == "list":
                     action["amount"] = item["asking"]
                 actions.append(action)

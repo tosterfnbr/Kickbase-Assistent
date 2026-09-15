@@ -1,5 +1,12 @@
 {
   "league_name": "Bierbanausen",
+  "base_xi_enabled": true,
+  "base_xi_refresh_hours": 6,
+  "auto_withdraw_bids": true,
+  "email_digest_minutes": 60,
+  "max_trading_player_price": 3000000,
+  "max_trading_total": 5000000,
+  "minimum_trading_gain": 100000,
   "poll_minutes": 5,
   "mode": "observe",
   "minimum_cash": 1000000,
