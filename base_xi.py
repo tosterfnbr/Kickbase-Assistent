@@ -89,6 +89,7 @@ def enrich_base_xi(players, source):
         if raw:
             bx = {"available": True, "checked_at": source.get("checked_at"),
                   "name": raw.get("name"), "source": "Base-XI",
+                  "team_id": str(raw.get("teamId") or ""), "team_name":raw.get("teamName"),
                   "is_hot": raw.get("isHot") is True,
                   "gamble": raw.get("gamble"), "momentum": raw.get("momentum"),
                   "next_match": raw.get("next_match"), "match_preview": raw.get("match_preview"),
@@ -113,6 +114,7 @@ def enrich_base_xi(players, source):
             # Only fill missing raw values, never overwrite owner, offers or buy price.
             if not number(p.get("marketValue")) and not number(p.get("mv")):
                 p["mv"] = mv
+                p["market_value_source"] = "Base-XI"
             perf = dict(p.get("performance") or {})
             for key in ("average_points", "total_points"):
                 if perf.get(key) is None:

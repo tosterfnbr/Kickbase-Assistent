@@ -101,7 +101,7 @@ class DecisionEngineTests(unittest.TestCase):
     def test_purchase_price_and_star_profit_protect_offer_floor(self):
         star = player("star", 3, 5, mv=10_000_000, trend=2)
         star["purchasePrice"] = 12_000_000
-        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10}, is_core=True)
+        limits = price_limits(star, {"target_profit_percent": 5, "star_sale_profit_percent": 10, "sale_price_basis":"purchase"}, is_core=True)
         self.assertGreaterEqual(limits["accept"], 13_200_000)
 
     def test_multiple_good_offers_cannot_sell_below_eleven(self):

@@ -176,5 +176,6 @@ const renderFeedBase=renderFeed;renderFeed=()=>{renderFeedBase();renderWatchlist
 const renderOverviewBase=renderOverview;renderOverview=()=>{renderOverviewBase();renderLive();renderHistory()};
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=Number(b.dataset.filter);document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderMarket()});document.addEventListener('keydown',e=>{if(e.key==='Escape')closePlayer()});load();setInterval(load,60000);setInterval(updateCountdown,1000);
 </script>
+<script src="/planner.js"></script>
 </body>
 </html>

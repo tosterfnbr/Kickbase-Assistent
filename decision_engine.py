@@ -105,6 +105,8 @@ def s11_score(player):
 
 
 def _quality(player):
+    if isinstance(player.get("analysis"), dict) and player["analysis"].get("expected_points") is not None:
+        return player["analysis"]["expected_points"] * 10000 + (s11_score(player) or 0)
     s11 = s11_score(player)
     performance = player.get("performance", {}) if isinstance(player, dict) else {}
     points = performance.get("average_points")
@@ -148,7 +150,8 @@ def price_limits(player, config, is_core=False):
     if mv <= 0:
         return {"asking": 0, "accept": 0, "basis": 0}
     paid = int(_number(player, "purchasePrice", "buyPrice", "bp", "bpr") or 0)
-    basis = max(mv, paid)
+    market_basis = config.get("sale_price_basis", "market") == "market"
+    basis = mv if market_basis else max(mv, paid)
     score = s11_score(player)
     trend = int(_number(player, "marketValueTrend", "mvt") or 0)
     markup = float(config.get("asking_price_percent", 2))
@@ -162,7 +165,7 @@ def price_limits(player, config, is_core=False):
         markup += float(config.get("star_listing_bonus_percent", 8))
     markup = max(-10, min(50, markup))
     minimum_offer = max(70, min(150, float(config.get("minimum_offer_percent", 98))))
-    profit_floor = paid * (1 + float(config.get("target_profit_percent", 4)) / 100) if paid else 0
+    profit_floor = paid * (1 + float(config.get("target_profit_percent", 4)) / 100) if paid and not market_basis else 0
     core_floor = basis * (1 + float(config.get("star_sale_profit_percent", 10)) / 100) if is_core else 0
     return {
         "asking": int(round(basis * (1 + markup / 100) / 1000) * 1000),
@@ -292,6 +295,9 @@ def build_trade_plan(market_players, squad, config, user_id="", near_matchday=Fa
         if own_id and player_owner_id(player) == own_id:
             pid = player_id(player)
             own_listings[pid] = player
+            if pid in set(map(str,config.get("protected_players",[]))):
+                blocked.append({"player_id":pid,"player":player_name(player),"reason":"Manuell geschützter Spieler"})
+                continue
             is_core = pid in core_ids
             limits = price_limits(player, config, is_core=is_core)
             offers = pick(player, "offers", "ofs", default=[]) or []
